@@ -6,7 +6,7 @@
 <title>Here — 최고관리자</title>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-app.js";
-  import { getFirestore, doc, getDoc, setDoc, updateDoc, getDocs, collection, query, where, orderBy, addDoc, deleteDoc, writeBatch } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-firestore.js";
+  import { getFirestore, doc, getDoc, setDoc, updateDoc, getDocs, collection, query, where, orderBy, addDoc, deleteDoc, writeBatch, limit } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-firestore.js";
   import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-auth.js";
   const app = initializeApp({
     apiKey:"AIzaSyBaCpQKykViq6526dCJ8mEYbUZqyg5-NUo",
@@ -23,7 +23,7 @@
   window.fsUpdateDoc = updateDoc; window.fsGetDocs = getDocs;
   window.fsCollection = collection; window.fsQuery = query;
   window.fsWhere = where; window.fsOrderBy = orderBy;
-  window.fsAddDoc = addDoc; window.fsDeleteDoc = deleteDoc; window.fsWriteBatch = writeBatch;
+  window.fsAddDoc = addDoc; window.fsDeleteDoc = deleteDoc; window.fsWriteBatch = writeBatch; window.fsLimit = limit;
   try { await signInAnonymously(auth); } catch(e) {}
   window.fsReady = true;
   window.dispatchEvent(new Event('fsReady'));
@@ -202,6 +202,10 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
       <button class="nav-item" id="nav-payment" onclick="showPage('payment',this)">
         <span class="nav-icon">💳</span>결제 현황
       </button>
+      <div class="sidebar-section-label">분석</div>
+      <button class="nav-item" id="nav-logs" onclick="showPage('logs',this)">
+        <span class="nav-icon">📋</span>출결 로그
+      </button>
       <div class="nav-version">v1.0 · 최고관리자</div>
     </div>
 
@@ -323,6 +327,51 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
               <th>학원명</th><th>원장님</th><th>결제 상태</th><th>마지막 결제</th><th>카드 등록</th><th>관리</th>
             </tr></thead>
             <tbody id="payment-list"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 출결 로그 -->
+      <div class="page" id="page-logs">
+        <div class="section-header">
+          <div>
+            <div class="section-title">출결 로그</div>
+            <div class="section-subtitle">출퇴근 시도 기록 — 승인·거절 모두 포함</div>
+          </div>
+          <button class="btn btn-outline btn-sm" onclick="loadLogs()">새로고침</button>
+        </div>
+        <div class="card" style="margin-bottom:16px;">
+          <div class="form-row" style="flex-wrap:wrap;gap:12px;align-items:flex-end;">
+            <div class="form-group" style="min-width:130px;">
+              <label class="form-label">날짜</label>
+              <input class="form-input" type="date" id="log-filter-date">
+            </div>
+            <div class="form-group" style="min-width:160px;">
+              <label class="form-label">학원/병원 ID</label>
+              <input class="form-input" type="text" id="log-filter-hospital" placeholder="hospitalId 또는 공란">
+            </div>
+            <div class="form-group" style="min-width:120px;">
+              <label class="form-label">결과</label>
+              <select class="form-select" id="log-filter-result">
+                <option value="">전체</option>
+                <option value="success">성공</option>
+                <option value="duplicate">중복</option>
+                <option value="error">오류</option>
+              </select>
+            </div>
+            <button class="btn btn-primary" onclick="loadLogs()" style="height:40px;align-self:flex-end;">조회</button>
+          </div>
+        </div>
+        <div id="logs-count" style="font-size:13px;color:var(--muted);margin-bottom:10px;"></div>
+        <div class="card" style="padding:0;overflow:auto;">
+          <table class="tbl" id="logs-table" style="font-size:12px;min-width:1100px;">
+            <thead><tr>
+              <th>시각</th><th>학생</th><th>병원ID</th><th>유형</th><th>결과</th>
+              <th>dist</th><th>eff</th><th>acc</th><th>A점</th><th>B점</th>
+              <th>WiFi</th><th>BSSID</th><th>신뢰</th><th>앵커</th>
+              <th>오류유형</th><th>오류메시지</th>
+            </tr></thead>
+            <tbody id="logs-tbody"></tbody>
           </table>
         </div>
       </div>
@@ -612,6 +661,7 @@ function showPage(id, btn){
     if (id==='payment')   loadPayments();
     if (id==='data')      initDataPage();
     if (id==='academies') loadAcademies();
+    if (id==='logs')      initLogsPage();
 }
 
 // ── Directors ──────────────────────────────────────────────
@@ -1593,6 +1643,97 @@ async function saveAttRecord(){
     } catch(e){
         console.error('출결 저장 실패:', e);
         showToast('저장 실패: '+e.message,'error');
+    }
+    showLoader(false);
+}
+
+// ── Attendance Logs ────────────────────────────────────────
+function initLogsPage(){
+    const dateEl = document.getElementById('log-filter-date');
+    if (!dateEl.value) dateEl.value = todayKST();
+    loadLogs();
+}
+
+async function loadLogs(){
+    showLoader(true);
+    try {
+        const dateVal    = document.getElementById('log-filter-date').value;
+        const hospitalVal= document.getElementById('log-filter-hospital').value.trim();
+        const resultVal  = document.getElementById('log-filter-result').value;
+
+        const col = window.fsCollection(window.db, 'attendanceLogs');
+        const constraints = [];
+
+        if (dateVal) {
+            const start = new Date(dateVal + 'T00:00:00+09:00');
+            const end   = new Date(dateVal + 'T23:59:59+09:00');
+            constraints.push(window.fsWhere('ts', '>=', start));
+            constraints.push(window.fsWhere('ts', '<=', end));
+        }
+        if (hospitalVal) constraints.push(window.fsWhere('hospitalId', '==', hospitalVal));
+        if (resultVal)   constraints.push(window.fsWhere('result', '==', resultVal));
+
+        constraints.push(window.fsOrderBy('ts', 'desc'));
+        constraints.push(window.fsLimit(300));
+
+        const snap = await window.fsGetDocs(window.fsQuery(col, ...constraints));
+
+        const rows = [];
+        snap.forEach(d => rows.push(d.data()));
+
+        document.getElementById('logs-count').textContent = `총 ${rows.length}건 (최대 300건)`;
+
+        const tbody = document.getElementById('logs-tbody');
+        if (rows.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="16" style="text-align:center;color:var(--muted);padding:24px;">로그 없음</td></tr>';
+            showLoader(false); return;
+        }
+
+        tbody.innerHTML = rows.map(r => {
+            const result = r.result || '';
+            let rowStyle = '';
+            if (result === 'success') rowStyle = 'background:#f0fdf4;';
+            else if (result === 'duplicate') rowStyle = 'background:#fefce8;';
+            else if (result === 'error') rowStyle = 'background:#fff1f2;';
+
+            const ts = r.ts ? (r.ts.toDate ? r.ts.toDate() : new Date(r.ts.seconds*1000)) : null;
+            const tsStr = ts ? (
+                ts.toLocaleString('ko-KR', {timeZone:'Asia/Seoul',
+                    month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'})
+            ) : '-';
+
+            const bssidShort = r.bssid ? r.bssid.slice(-8) : '-';
+            const errorMsg = r.errorMsg ? escHtml(r.errorMsg.replace(/\n/g,' ')) : '-';
+            const resultLabel = result === 'success' ? '✅ 성공'
+                              : result === 'duplicate' ? '🔁 중복'
+                              : result === 'error' ? '❌ 오류' : result || '-';
+
+            return `<tr style="${rowStyle}">
+              <td style="white-space:nowrap;">${tsStr}</td>
+              <td>${escHtml(r.name||r.kakaoId||'-')}</td>
+              <td style="max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(r.hospitalId||'')}">
+                ${escHtml((r.hospitalId||'-').slice(0,14))}
+              </td>
+              <td>${escHtml(r.type||'-')}</td>
+              <td style="white-space:nowrap;">${resultLabel}</td>
+              <td>${r.dist != null ? Math.round(r.dist)+'m' : '-'}</td>
+              <td>${r.effectiveDist != null ? r.effectiveDist+'m' : '-'}</td>
+              <td>${r.accuracy != null ? r.accuracy+'m' : '-'}</td>
+              <td style="text-align:center;font-weight:700;">${r.scoreA != null ? r.scoreA : '-'}</td>
+              <td style="text-align:center;font-weight:700;">${r.scoreB != null ? r.scoreB : '-'}</td>
+              <td style="text-align:center;">${r.wifiConnected ? '✔' : '✗'}</td>
+              <td style="font-family:monospace;">${escHtml(bssidShort)}</td>
+              <td style="text-align:center;">${r.bssidTrusted ? '⭐' : '-'}</td>
+              <td>${r.anchorDist != null ? r.anchorDist+'m' : '-'}</td>
+              <td>${escHtml(r.errorType||'-')}</td>
+              <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${errorMsg}">
+                ${errorMsg}
+              </td>
+            </tr>`;
+        }).join('');
+    } catch(e) {
+        showToast('로그 불러오기 실패: '+e.message, 'error');
+        console.error(e);
     }
     showLoader(false);
 }
