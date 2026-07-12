@@ -244,7 +244,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
           <div class="card" style="padding:0;overflow:hidden;">
             <table class="tbl">
               <thead><tr>
-                <th>이름</th><th>학원명</th><th>휴대폰</th><th>가입일</th><th>상태</th><th>결제</th><th>관리</th>
+                <th>이름</th><th>학원명</th><th>휴대폰</th><th>가입일</th><th>상태</th><th>결제</th><th>화면모드</th><th>관리</th>
               </tr></thead>
               <tbody id="directors-all-list"></tbody>
             </table>
@@ -759,6 +759,11 @@ function renderDirectors(){
         return '<span class="badge badge-gray">'+p+'</span>';
     };
 
+    const viewModeBadge = vm => {
+        if (!vm || vm === 'director') return '<span class="badge badge-blue">원장화면</span>';
+        if (vm === 'student') return '<span class="badge badge-yellow">학생화면</span>';
+        return '<span class="badge badge-gray">'+vm+'</span>';
+    };
     const rows = allDirectors.map(d=>`
       <tr>
         <td style="font-weight:600;">${escHtml(d.name||'-')}</td>
@@ -768,6 +773,12 @@ function renderDirectors(){
         <td>${statusBadge(d.status)}</td>
         <td>${payBadge(d.paymentStatus)}</td>
         <td>
+          ${viewModeBadge(d.viewMode)}
+          <button class="btn btn-sm" style="margin-top:4px;background:${(!d.viewMode||d.viewMode==='director')?'#e0e7ff':'#fef9c3'};color:${(!d.viewMode||d.viewMode==='director')?'#5651d5':'#92400e'};border:1.5px solid ${(!d.viewMode||d.viewMode==='director')?'#c7d2fe':'#fde68a'};" onclick="toggleViewMode('${d.id}','${d.viewMode||'director'}')">
+            ${(!d.viewMode||d.viewMode==='director') ? '→ 학생화면으로' : '→ 원장화면으로'}
+          </button>
+        </td>
+        <td>
           ${d.status==='pending'
             ? `<button class="btn btn-primary btn-sm" onclick="approveDirector('${d.id}',true)">승인</button>`
             : d.status==='approved'
@@ -775,7 +786,7 @@ function renderDirectors(){
               : ''}
         </td>
       </tr>`).join('');
-    document.getElementById('directors-all-list').innerHTML = rows || '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--muted);">원장님이 없습니다</td></tr>';
+    document.getElementById('directors-all-list').innerHTML = rows || '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--muted);">원장님이 없습니다</td></tr>';
 }
 
 async function approveDirector(id, approve){
@@ -795,6 +806,19 @@ async function revokeDirector(id){
     try {
         await window.fsUpdateDoc(window.fsDoc(window.db,'directors',id),{status:'pending'});
         showToast('승인 취소됨','info');
+        await loadDirectors();
+    } catch(e){ showToast('실패: '+e.message,'error'); }
+    showLoader(false);
+}
+
+async function toggleViewMode(id, current){
+    const next = (!current || current === 'director') ? 'student' : 'director';
+    const label = next === 'student' ? '학생화면' : '원장화면';
+    if (!confirm(`이 원장님의 화면 모드를 [${label}]으로 변경하시겠습니까?`)) return;
+    showLoader(true);
+    try {
+        await window.fsUpdateDoc(window.fsDoc(window.db,'directors',id),{viewMode: next});
+        showToast(`화면 모드가 [${label}]으로 변경되었습니다`,'success');
         await loadDirectors();
     } catch(e){ showToast('실패: '+e.message,'error'); }
     showLoader(false);
