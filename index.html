@@ -785,6 +785,9 @@ function renderDirectors(){
             : d.status==='approved'
               ? `<button class="btn btn-outline btn-sm" onclick="revokeDirector('${d.id}')">취소</button>`
               : ''}
+          <button class="btn btn-sm" style="background:#dbeafe;color:#1d4ed8;border:none;" onclick="assignAcademy('${d.id}','${(d.name||'').replace(/'/g,"\\'")}')">
+            ${d.academyId ? '학원변경' : '학원배치'}
+          </button>
           <button class="btn btn-danger btn-sm" onclick="deleteDirector('${d.id}','${(d.name||'').replace(/'/g,"\\'")}')">삭제</button>
         </td>
       </tr>`).join('');
@@ -821,6 +824,45 @@ async function deleteDirector(id, name){
         showToast('삭제되었습니다','success');
         await loadDirectors();
     } catch(e){ showToast('삭제 중 오류가 발생했습니다','error'); }
+    showLoader(false);
+}
+
+async function assignAcademy(directorId, directorName){
+    showLoader(true);
+    let academies = [];
+    try {
+        const snap = await window.fsGetDocs(window.fsCollection(window.db,'academies'));
+        snap.forEach(d => academies.push({id:d.id,...d.data()}));
+        academies.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+    } catch(e){
+        showLoader(false);
+        showToast('학원 목록 불러오기 실패: '+e.message,'error');
+        return;
+    }
+    showLoader(false);
+    if (!academies.length){
+        alert('등록된 학원이 없습니다.');
+        return;
+    }
+    const listText = academies.map((a,i)=>`${i+1}. ${a.name||'(이름없음)'} (${a.id})`).join('\n');
+    const input = prompt(`[${directorName}] 원장님의 학원을 선택하세요 (번호 입력):\n\n${listText}`);
+    if (input === null) return;
+    const idx = parseInt(input, 10) - 1;
+    if (isNaN(idx) || idx < 0 || idx >= academies.length){
+        alert('올바른 번호를 입력하세요.');
+        return;
+    }
+    const chosen = academies[idx];
+    if (!confirm(`[${chosen.name}]에 배치하시겠습니까?`)) return;
+    showLoader(true);
+    try {
+        await window.fsUpdateDoc(window.fsDoc(window.db,'directors',directorId),{
+            academyId: chosen.id,
+            academyName: chosen.name||''
+        });
+        showToast(`${directorName} 원장님을 [${chosen.name}]에 배치했습니다`,'success');
+        await loadDirectors();
+    } catch(e){ showToast('배치 실패: '+e.message,'error'); }
     showLoader(false);
 }
 
