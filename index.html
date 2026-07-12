@@ -244,7 +244,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
           <div class="card" style="padding:0;overflow:hidden;">
             <table class="tbl">
               <thead><tr>
-                <th>이름</th><th>학원명</th><th>휴대폰</th><th>가입일</th><th>상태</th><th>결제</th><th>화면모드</th><th>관리</th>
+                <th>이름</th><th>학원명</th><th>휴대폰</th><th>카카오ID</th><th>가입일</th><th>상태</th><th>결제</th><th>화면모드</th><th>관리</th>
               </tr></thead>
               <tbody id="directors-all-list"></tbody>
             </table>
@@ -769,6 +769,7 @@ function renderDirectors(){
         <td style="font-weight:600;">${escHtml(d.name||'-')}</td>
         <td>${escHtml(d.academyName||'-')}</td>
         <td>${escHtml(d.phone||'-')}</td>
+        <td style="font-size:11px;color:var(--muted);">${escHtml(d.kakaoId||'-')}</td>
         <td style="color:var(--muted);font-size:12px;">${formatDate(d.createdAt)}</td>
         <td>${statusBadge(d.status)}</td>
         <td>${payBadge(d.paymentStatus)}</td>
@@ -778,15 +779,16 @@ function renderDirectors(){
             ${(!d.viewMode||d.viewMode==='director') ? '→ 학생화면으로' : '→ 원장화면으로'}
           </button>
         </td>
-        <td>
+        <td style="display:flex;flex-direction:column;gap:4px;align-items:flex-start;">
           ${d.status==='pending'
             ? `<button class="btn btn-primary btn-sm" onclick="approveDirector('${d.id}',true)">승인</button>`
             : d.status==='approved'
               ? `<button class="btn btn-outline btn-sm" onclick="revokeDirector('${d.id}')">취소</button>`
               : ''}
+          <button class="btn btn-danger btn-sm" onclick="deleteDirector('${d.id}','${(d.name||'').replace(/'/g,"\\'")}')">삭제</button>
         </td>
       </tr>`).join('');
-    document.getElementById('directors-all-list').innerHTML = rows || '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--muted);">원장님이 없습니다</td></tr>';
+    document.getElementById('directors-all-list').innerHTML = rows || '<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--muted);">원장님이 없습니다</td></tr>';
 }
 
 async function approveDirector(id, approve){
@@ -808,6 +810,17 @@ async function revokeDirector(id){
         showToast('승인 취소됨','info');
         await loadDirectors();
     } catch(e){ showToast('실패: '+e.message,'error'); }
+    showLoader(false);
+}
+
+async function deleteDirector(id, name){
+    if (!confirm(`정말로 ${name} 원장님 계정을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`)) return;
+    showLoader(true);
+    try {
+        await window.fsDeleteDoc(window.fsDoc(window.db,'directors',id));
+        showToast('삭제되었습니다','success');
+        await loadDirectors();
+    } catch(e){ showToast('삭제 중 오류가 발생했습니다','error'); }
     showLoader(false);
 }
 
