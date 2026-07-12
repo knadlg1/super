@@ -617,6 +617,21 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
   </div>
 </div>
 
+<!-- 학원 배치 모달 -->
+<div id="academy-assign-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:16px;padding:28px;min-width:320px;max-width:420px;width:90%;">
+    <h3 style="margin:0 0 8px;font-size:16px;font-weight:700;">학원 배치</h3>
+    <p id="academy-assign-director-name" style="margin:0 0 16px;font-size:13px;color:#64748b;"></p>
+    <select id="academy-assign-select" style="width:100%;padding:10px 12px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;margin-bottom:20px;">
+      <option value="">학원을 선택해주세요</option>
+    </select>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button onclick="closeAcademyModal()" style="padding:8px 18px;border-radius:8px;border:1.5px solid #e2e8f0;background:#f8fafc;font-size:13px;font-weight:600;cursor:pointer;">취소</button>
+      <button onclick="confirmAcademyAssign()" style="padding:8px 18px;border-radius:8px;border:none;background:#1d4ed8;color:#fff;font-size:13px;font-weight:600;cursor:pointer;">배치</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ── Kakao REST API 키 설정 ─────────────────────────────────
 // Kakao Developers(developers.kakao.com)에서 앱 생성 후 REST API 키 입력
@@ -827,43 +842,54 @@ async function deleteDirector(id, name){
     showLoader(false);
 }
 
-async function assignAcademy(directorId, directorName){
-    showLoader(true);
-    let academies = [];
-    try {
-        const snap = await window.fsGetDocs(window.fsCollection(window.db,'academies'));
-        snap.forEach(d => academies.push({id:d.id,...d.data()}));
-        academies.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
-    } catch(e){
-        showLoader(false);
-        showToast('학원 목록 불러오기 실패: '+e.message,'error');
-        return;
-    }
-    showLoader(false);
-    if (!academies.length){
-        alert('등록된 학원이 없습니다.');
-        return;
-    }
-    const listText = academies.map((a,i)=>`${i+1}. ${a.name||'(이름없음)'} (${a.id})`).join('\n');
-    const input = prompt(`[${directorName}] 원장님의 학원을 선택하세요 (번호 입력):\n\n${listText}`);
-    if (input === null) return;
-    const idx = parseInt(input, 10) - 1;
-    if (isNaN(idx) || idx < 0 || idx >= academies.length){
-        alert('올바른 번호를 입력하세요.');
-        return;
-    }
-    const chosen = academies[idx];
-    if (!confirm(`[${chosen.name}]에 배치하시겠습니까?`)) return;
+let _assignDirectorId = null;
+
+async function assignAcademy(directorId, directorName) {
+    _assignDirectorId = directorId;
     showLoader(true);
     try {
-        await window.fsUpdateDoc(window.fsDoc(window.db,'directors',directorId),{
-            academyId: chosen.id,
-            academyName: chosen.name||''
+        const snap = await window.fsGetDocs(window.fsCollection(window.db, 'academies'));
+        const sel = document.getElementById('academy-assign-select');
+        sel.innerHTML = '<option value="">학원을 선택해주세요</option>';
+        snap.forEach(d => {
+            const data = d.data();
+            const opt = document.createElement('option');
+            opt.value = d.id;
+            opt.textContent = data.name || d.id;
+            opt.dataset.name = data.name || d.id;
+            sel.appendChild(opt);
         });
-        showToast(`${directorName} 원장님을 [${chosen.name}]에 배치했습니다`,'success');
+        document.getElementById('academy-assign-director-name').textContent = directorName + ' 원장님';
+        const modal = document.getElementById('academy-assign-modal');
+        modal.style.display = 'flex';
+    } catch(e) {
+        showToast('학원 목록을 불러오지 못했습니다', 'error');
+    } finally {
+        showLoader(false);
+    }
+}
+
+function closeAcademyModal() {
+    document.getElementById('academy-assign-modal').style.display = 'none';
+    _assignDirectorId = null;
+}
+
+async function confirmAcademyAssign() {
+    const sel = document.getElementById('academy-assign-select');
+    const academyId = sel.value;
+    const academyName = sel.options[sel.selectedIndex]?.dataset?.name || '';
+    if (!academyId) { showToast('학원을 선택해주세요', 'error'); return; }
+    closeAcademyModal();
+    showLoader(true);
+    try {
+        await window.fsUpdateDoc(window.fsDoc(window.db, 'directors', _assignDirectorId), { academyId, academyName });
+        showToast('학원이 배치되었습니다', 'success');
         await loadDirectors();
-    } catch(e){ showToast('배치 실패: '+e.message,'error'); }
-    showLoader(false);
+    } catch(e) {
+        showToast('저장 중 오류가 발생했습니다', 'error');
+    } finally {
+        showLoader(false);
+    }
 }
 
 async function toggleViewMode(id, current){
