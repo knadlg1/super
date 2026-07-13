@@ -209,6 +209,9 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
       <button class="nav-item" id="nav-logs" onclick="showPage('logs',this)">
         <span class="nav-icon">📋</span>출결 로그
       </button>
+      <button class="nav-item" id="nav-scoring" onclick="showPage('scoring',this);loadScoringLogs()">
+        <span class="nav-icon">📊</span>점수 로그
+      </button>
       <div class="nav-version">v1.0 · 최고관리자</div>
     </div>
 
@@ -421,6 +424,76 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
               <th>오류메시지<span class="th-help" data-tip="학생 화면에 실제로 표시된 오류 문구">?</span></th>
             </tr></thead>
             <tbody id="logs-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 점수 로그 -->
+      <div class="page" id="page-scoring">
+        <div class="section-header">
+          <div>
+            <div class="section-title">점수 로그</div>
+            <div class="section-subtitle">WiFi 핑거프린트 · GPS 점수 기록 (출퇴근 시도 시 클라이언트 집계)</div>
+          </div>
+          <button class="btn btn-outline btn-sm" onclick="loadScoringLogs()">새로고침</button>
+        </div>
+        <div class="card" style="margin-bottom:16px;">
+          <div class="form-row" style="flex-wrap:wrap;gap:12px;align-items:flex-end;">
+            <div class="form-group" style="min-width:130px;">
+              <label class="form-label">날짜</label>
+              <input class="form-input" type="date" id="sc-date">
+            </div>
+            <div class="form-group" style="min-width:120px;">
+              <label class="form-label">유형</label>
+              <select class="form-select" id="sc-type">
+                <option value="">전체</option>
+                <option value="in">출근</option>
+                <option value="out">퇴근</option>
+              </select>
+            </div>
+            <div class="form-group" style="min-width:130px;">
+              <label class="form-label">단계</label>
+              <select class="form-select" id="sc-phase">
+                <option value="">전체</option>
+                <option value="collecting">collecting</option>
+                <option value="active">active</option>
+              </select>
+            </div>
+            <div class="form-group" style="min-width:120px;">
+              <label class="form-label">CF 결과</label>
+              <select class="form-select" id="sc-cfstatus">
+                <option value="">전체</option>
+                <option value="success">success</option>
+                <option value="duplicate">duplicate</option>
+                <option value="error">error</option>
+              </select>
+            </div>
+            <div class="form-group" style="min-width:110px;">
+              <label class="form-label">표시 개수</label>
+              <select class="form-select" id="sc-limit">
+                <option value="200">200건</option>
+                <option value="500" selected>500건</option>
+                <option value="1000">1000건</option>
+              </select>
+            </div>
+            <button class="btn btn-primary" onclick="loadScoringLogs()" style="height:40px;align-self:flex-end;">조회</button>
+          </div>
+        </div>
+        <div id="sc-count" style="font-size:13px;color:var(--muted);margin-bottom:10px;"></div>
+        <div class="card" style="padding:0;overflow:auto;">
+          <table class="tbl" id="sc-table" style="font-size:12px;min-width:900px;">
+            <thead><tr>
+              <th>시각</th>
+              <th>이름</th>
+              <th>유형</th>
+              <th>단계<span class="th-help" data-tip="collecting: 핑거프린트 수집 중 (5회 미만)&#10;active: 핑거프린트 활성 (5회 이상)">?</span></th>
+              <th>WiFi 일치율<span class="th-help" data-tip="주변 WiFi 중 저장된 BSSID와 일치한 비율 (%)&#10;60% 이상이면 핑거프린트 점수 부여">?</span></th>
+              <th>핑거프린트 점수<span class="th-help" data-tip="phase·matchPct·GPS 기반 최종 점수">?</span></th>
+              <th>GPS 정확도<span class="th-help" data-tip="기기 GPS 오차 반경 (m), 낮을수록 정밀">?</span></th>
+              <th>WiFi 연결</th>
+              <th>CF 결과<span class="th-help" data-tip="Cloud Function 처리 결과&#10;success / duplicate / error">?</span></th>
+            </tr></thead>
+            <tbody id="sc-tbody"></tbody>
           </table>
         </div>
       </div>
@@ -2005,6 +2078,74 @@ function formatDate(ts){
 }
 
 init();
+
+async function loadScoringLogs() {
+  showLoader(true);
+  try {
+    const dateVal    = document.getElementById('sc-date').value;
+    const typeVal    = document.getElementById('sc-type').value;
+    const phaseVal   = document.getElementById('sc-phase').value;
+    const cfVal      = document.getElementById('sc-cfstatus').value;
+    const limitVal   = parseInt(document.getElementById('sc-limit').value) || 500;
+
+    const col = window.fsCollection(window.db, 'scoringLogs');
+    const constraints = [];
+
+    if (dateVal) {
+      constraints.push(window.fsWhere('date', '==', dateVal));
+    }
+    if (typeVal)  constraints.push(window.fsWhere('type', '==', typeVal));
+    if (phaseVal) constraints.push(window.fsWhere('fingerprintPhase', '==', phaseVal));
+    if (cfVal)    constraints.push(window.fsWhere('cfStatus', '==', cfVal));
+
+    constraints.push(window.fsOrderBy('timestamp', 'desc'));
+    constraints.push(window.fsLimit(limitVal));
+
+    const snap = await window.fsGetDocs(window.fsQuery(col, ...constraints));
+    const rows = [];
+    snap.forEach(d => rows.push(d.data()));
+
+    document.getElementById('sc-count').textContent = `총 ${rows.length}건`;
+
+    const tbody = document.getElementById('sc-tbody');
+    if (rows.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:24px;">로그 없음</td></tr>';
+      showLoader(false); return;
+    }
+
+    tbody.innerHTML = rows.map(r => {
+      const cfStatus = r.cfStatus || '';
+      const cfLabel  = cfStatus === 'success'   ? '<span class="badge badge-green">success</span>'
+                     : cfStatus === 'duplicate' ? '<span class="badge badge-yellow">duplicate</span>'
+                     : cfStatus === 'error'     ? '<span class="badge badge-red">error</span>'
+                     : escHtml(cfStatus || '-');
+      const matchPct = r.matchPct != null ? r.matchPct + '%' : '-';
+      const score    = r.fingerprintScore != null ? r.fingerprintScore : '-';
+      const gpsAcc   = r.gpsAccuracy != null ? r.gpsAccuracy + 'm' : '-';
+      const typeLabel = r.type === 'in' ? '출근' : r.type === 'out' ? '퇴근' : escHtml(r.type || '-');
+      const phaseLabel = r.fingerprintPhase === 'active' ? '<span class="badge badge-blue">active</span>'
+                       : r.fingerprintPhase === 'collecting' ? '<span class="badge badge-gray">collecting</span>'
+                       : escHtml(r.fingerprintPhase || '-');
+      const timeStr  = r.time || (r.timestamp ? r.timestamp.slice(11,16) : '-');
+      const dateStr  = r.date || (r.timestamp ? r.timestamp.slice(0,10) : '-');
+      return `<tr>
+        <td style="white-space:nowrap;">${escHtml(dateStr)} ${escHtml(timeStr)}</td>
+        <td>${escHtml(r.name || String(r.kakaoId || '-'))}</td>
+        <td>${typeLabel}</td>
+        <td>${phaseLabel}</td>
+        <td style="text-align:center;font-weight:700;">${matchPct}</td>
+        <td style="text-align:center;font-weight:700;">${score}</td>
+        <td style="text-align:center;">${gpsAcc}</td>
+        <td style="text-align:center;">${r.wifiConnected ? '✔' : '✗'}</td>
+        <td>${cfLabel}</td>
+      </tr>`;
+    }).join('');
+  } catch(e) {
+    showToast('점수 로그 불러오기 실패: ' + e.message, 'error');
+  } finally {
+    showLoader(false);
+  }
+}
 
 // ── Column Help Tooltip (fixed position — not clipped by overflow) ──
 (function(){
