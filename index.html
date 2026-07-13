@@ -206,9 +206,6 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
         <span class="nav-icon">💳</span>결제 현황
       </button>
       <div class="sidebar-section-label">분석</div>
-      <button class="nav-item" id="nav-logs" onclick="showPage('logs',this)">
-        <span class="nav-icon">📋</span>출결 로그
-      </button>
       <button class="nav-item" id="nav-scoring" onclick="showPage('scoring',this);loadScoringLogs()">
         <span class="nav-icon">📊</span>점수 로그
       </button>
@@ -344,90 +341,6 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
         </div>
       </div>
 
-      <!-- 출결 로그 -->
-      <div class="page" id="page-logs">
-        <div class="section-header">
-          <div>
-            <div class="section-title">출결 로그</div>
-            <div class="section-subtitle">출퇴근 시도 기록 — 승인·거절 모두 포함</div>
-          </div>
-          <button class="btn btn-outline btn-sm" onclick="loadLogs()">새로고침</button>
-        </div>
-        <div class="card" style="margin-bottom:16px;">
-          <div class="form-row" style="flex-wrap:wrap;gap:12px;align-items:flex-end;">
-            <div class="form-group" style="min-width:130px;">
-              <label class="form-label">시작 날짜</label>
-              <input class="form-input" type="date" id="log-filter-date-start">
-            </div>
-            <div class="form-group" style="min-width:130px;">
-              <label class="form-label">종료 날짜</label>
-              <input class="form-input" type="date" id="log-filter-date-end">
-            </div>
-            <div class="form-group" style="min-width:150px;">
-              <label class="form-label">학원</label>
-              <select class="form-select" id="log-filter-academy" onchange="onLogAcademyChange()">
-                <option value="">전체 학원</option>
-              </select>
-            </div>
-            <div class="form-group" style="min-width:150px;">
-              <label class="form-label">병원</label>
-              <select class="form-select" id="log-filter-hospital-select" disabled>
-                <option value="">전체 병원</option>
-              </select>
-            </div>
-            <div class="form-group" style="min-width:140px;">
-              <label class="form-label">학생</label>
-              <select class="form-select" id="log-filter-student" disabled>
-                <option value="">전체 학생</option>
-              </select>
-            </div>
-            <div class="form-group" style="min-width:120px;">
-              <label class="form-label">결과</label>
-              <select class="form-select" id="log-filter-result">
-                <option value="">전체</option>
-                <option value="success">성공</option>
-                <option value="duplicate">중복</option>
-                <option value="error">오류</option>
-              </select>
-            </div>
-            <div class="form-group" style="min-width:110px;">
-              <label class="form-label">표시 개수</label>
-              <select class="form-select" id="log-filter-limit">
-                <option value="300">300건</option>
-                <option value="500">500건</option>
-                <option value="1000" selected>1000건</option>
-                <option value="3000">3000건</option>
-              </select>
-            </div>
-            <button class="btn btn-primary" onclick="loadLogs()" style="height:40px;align-self:flex-end;">조회</button>
-          </div>
-        </div>
-        <div id="logs-count" style="font-size:13px;color:var(--muted);margin-bottom:10px;"></div>
-        <div class="card" style="padding:0;overflow:auto;">
-          <table class="tbl" id="logs-table" style="font-size:12px;min-width:1100px;">
-            <thead><tr>
-              <th>시각<span class="th-help" data-tip="출퇴근 시도 시각 (KST)">?</span></th>
-              <th>학생<span class="th-help" data-tip="학생 이름 또는 카카오 ID">?</span></th>
-              <th>병원ID<span class="th-help" data-tip="Firestore 병원 문서 ID&#10;(hospitalId 필터와 동일)">?</span></th>
-              <th>유형<span class="th-help" data-tip="출근 / 퇴근">?</span></th>
-              <th>결과<span class="th-help" data-tip="✅ 성공 — 정상 처리&#10;🔁 중복 — 이미 기록됨&#10;❌ 오류 — 거절됨">?</span></th>
-              <th>dist<span class="th-help" data-tip="학생 GPS ↔ 병원 좌표 직선 거리 (m)&#10;보정 전 원시 거리">?</span></th>
-              <th>eff<span class="th-help" data-tip="유효 거리 effectiveDist (m)&#10;= dist − min(acc, 40) × 0.5&#10;GPS 오차를 최대 20m 차감한 값&#10;A점수 산정 기준">?</span></th>
-              <th>acc<span class="th-help" data-tip="기기 GPS 정확도 반경 (m)&#10;낮을수록 정밀&#10;40m 초과분은 보정에 반영 안 됨">?</span></th>
-              <th>A점<span class="th-help" data-tip="GPS 유효거리 기반 점수 (1~5점)&#10;≤ 20m → 5점&#10;≤ 40m → 4점&#10;≤ 60m → 3점&#10;≤ 90m → 2점&#10;그 외  → 1점">?</span></th>
-              <th>B점<span class="th-help" data-tip="WiFi / BSSID 신뢰 점수 (0~5점)&#10;신뢰BSSID + 앵커 50m 이내 → 5점&#10;신뢰BSSID만 (앵커 초과)  → 2점&#10;WiFi 연결만 (미인증 BSSID) → 1점&#10;없음 → 0점&#10;&#10;A점 + B점 ≥ 5 이면 통과">?</span></th>
-              <th>WiFi<span class="th-help" data-tip="기기가 WiFi에 연결된 여부&#10;✔ 연결됨 / ✗ 미연결">?</span></th>
-              <th>BSSID<span class="th-help" data-tip="연결된 WiFi AP 주소 (마지막 8자리)&#10;신뢰 등록 여부 → 신뢰 열 참조">?</span></th>
-              <th>신뢰<span class="th-help" data-tip="⭐ 관리자가 신뢰 등록한 BSSID&#10;신뢰 BSSID는 B점 산정에 사용됨">?</span></th>
-              <th>앵커<span class="th-help" data-tip="신뢰 BSSID의 GPS 앵커와 현재 위치 간 거리 (m)&#10;50m 이하면 B점 5점&#10;50m 초과면 B점 2점">?</span></th>
-              <th>오류유형<span class="th-help" data-tip="distance — 거리/위치 문제&#10;wifi    — WiFi 점수 부족&#10;auth    — 인증 실패&#10;server  — 서버 오류">?</span></th>
-              <th>오류메시지<span class="th-help" data-tip="학생 화면에 실제로 표시된 오류 문구">?</span></th>
-            </tr></thead>
-            <tbody id="logs-tbody"></tbody>
-          </table>
-        </div>
-      </div>
-
       <!-- 점수 로그 -->
       <div class="page" id="page-scoring">
         <div class="section-header">
@@ -440,8 +353,16 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
         <div class="card" style="margin-bottom:16px;">
           <div class="form-row" style="flex-wrap:wrap;gap:12px;align-items:flex-end;">
             <div class="form-group" style="min-width:130px;">
-              <label class="form-label">날짜</label>
-              <input class="form-input" type="date" id="sc-date">
+              <label class="form-label">시작 날짜</label>
+              <input class="form-input" type="date" id="sc-date-start">
+            </div>
+            <div class="form-group" style="min-width:130px;">
+              <label class="form-label">종료 날짜</label>
+              <input class="form-input" type="date" id="sc-date-end">
+            </div>
+            <div class="form-group" style="min-width:140px;">
+              <label class="form-label">이름 검색</label>
+              <input class="form-input" type="text" id="sc-name" placeholder="이름 입력...">
             </div>
             <div class="form-group" style="min-width:120px;">
               <label class="form-label">유형</label>
@@ -463,9 +384,9 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
               <label class="form-label">CF 결과</label>
               <select class="form-select" id="sc-cfstatus">
                 <option value="">전체</option>
-                <option value="success">success</option>
-                <option value="duplicate">duplicate</option>
-                <option value="error">error</option>
+                <option value="success">성공</option>
+                <option value="duplicate">중복</option>
+                <option value="error">실패</option>
               </select>
             </div>
             <div class="form-group" style="min-width:110px;">
@@ -480,19 +401,29 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
           </div>
         </div>
         <div id="sc-count" style="font-size:13px;color:var(--muted);margin-bottom:10px;"></div>
-        <div class="card" style="padding:0;overflow:auto;">
-          <table class="tbl" id="sc-table" style="font-size:12px;min-width:900px;">
-            <thead><tr>
-              <th>시각</th>
-              <th>이름</th>
-              <th>유형</th>
-              <th>단계<span class="th-help" data-tip="collecting: 핑거프린트 수집 중 (5회 미만)&#10;active: 핑거프린트 활성 (5회 이상)">?</span></th>
-              <th>WiFi 일치율<span class="th-help" data-tip="주변 WiFi 중 저장된 BSSID와 일치한 비율 (%)&#10;60% 이상이면 핑거프린트 점수 부여">?</span></th>
-              <th>핑거프린트 점수<span class="th-help" data-tip="phase·matchPct·GPS 기반 최종 점수">?</span></th>
-              <th>GPS 정확도<span class="th-help" data-tip="기기 GPS 오차 반경 (m), 낮을수록 정밀">?</span></th>
-              <th>WiFi 연결</th>
-              <th>CF 결과<span class="th-help" data-tip="Cloud Function 처리 결과&#10;success / duplicate / error">?</span></th>
-            </tr></thead>
+        <div id="sc-summary" style="margin-bottom:12px;display:none;">
+          <div class="card" style="padding:16px;">
+            <div class="card-title" style="margin-bottom:12px;">학생별 시도 현황</div>
+            <div id="sc-summary-body" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+          </div>
+        </div>
+        <div class="card" style="padding:0;overflow:auto;max-height:calc(100vh - 340px);">
+          <table class="tbl" id="sc-table" style="font-size:12px;min-width:1100px;">
+            <thead>
+              <tr>
+                <th style="position:sticky;top:0;background:#fff;z-index:1;">시각</th>
+                <th style="position:sticky;top:0;background:#fff;z-index:1;">이름</th>
+                <th style="position:sticky;top:0;background:#fff;z-index:1;">유형</th>
+                <th style="position:sticky;top:0;background:#fff;z-index:1;">단계<span class="th-help" data-tip="collecting: 핑거프린트 수집 중 (5회 미만)&#10;active: 핑거프린트 활성 (5회 이상)">?</span></th>
+                <th style="position:sticky;top:0;background:#fff;z-index:1;">WiFi 일치율<span class="th-help" data-tip="주변 WiFi 중 저장된 BSSID와 일치한 비율 (%)&#10;60% 이상이면 핑거프린트 점수 부여">?</span></th>
+                <th style="position:sticky;top:0;background:#fff;z-index:1;">핑거프린트점수<span class="th-help" data-tip="phase·matchPct·GPS 기반 최종 점수">?</span></th>
+                <th style="position:sticky;top:0;background:#fff;z-index:1;">GPS 정확도<span class="th-help" data-tip="기기 GPS 오차 반경 (m), 낮을수록 정밀">?</span></th>
+                <th style="position:sticky;top:0;background:#fff;z-index:1;">WiFi</th>
+                <th style="position:sticky;top:0;background:#fff;z-index:1;">CF 결과</th>
+                <th style="position:sticky;top:0;background:#fff;z-index:1;">오류유형</th>
+                <th style="position:sticky;top:0;background:#fff;z-index:1;">오류메시지</th>
+              </tr>
+            </thead>
             <tbody id="sc-tbody"></tbody>
           </table>
         </div>
@@ -798,7 +729,6 @@ function showPage(id, btn){
     if (id==='payment')   loadPayments();
     if (id==='data')      initDataPage();
     if (id==='academies') loadAcademies();
-    if (id==='logs')      initLogsPage();
 }
 
 // ── Directors ──────────────────────────────────────────────
@@ -1917,155 +1847,6 @@ async function saveAttRecord(){
     showLoader(false);
 }
 
-// ── Attendance Logs ────────────────────────────────────────
-function initLogsPage(){
-    const today = todayKST();
-    if (!document.getElementById('log-filter-date-start').value) document.getElementById('log-filter-date-start').value = today;
-    if (!document.getElementById('log-filter-date-end').value)   document.getElementById('log-filter-date-end').value   = today;
-    if (!allAcademies.length) loadAcademies().then(populateLogAcademySelect);
-    else populateLogAcademySelect();
-    loadLogs();
-}
-
-function populateLogAcademySelect(){
-    const sel = document.getElementById('log-filter-academy');
-    const prev = sel.value;
-    sel.innerHTML = '<option value="">전체 학원</option>'
-        + allAcademies.map(a=>`<option value="${a.id}">${escHtml(a.name)}</option>`).join('');
-    if (prev) sel.value = prev;
-}
-
-function onLogAcademyChange(){
-    const academyId = document.getElementById('log-filter-academy').value;
-    const hospSel   = document.getElementById('log-filter-hospital-select');
-    const stuSel    = document.getElementById('log-filter-student');
-    hospSel.innerHTML = '<option value="">전체 병원</option>';
-    stuSel.innerHTML  = '<option value="">전체 학생</option>';
-    stuSel.disabled   = true;
-    if (!academyId){ hospSel.disabled = true; return; }
-
-    const hospitals = allAcademies.find(a=>a.id===academyId)?.hospitals || [];
-    if (hospitals.length){
-        hospitals.forEach(h => {
-            const opt = document.createElement('option');
-            opt.value = hospIdFromName(h.name);
-            opt.textContent = h.name;
-            hospSel.appendChild(opt);
-        });
-        hospSel.disabled = false;
-    } else {
-        hospSel.disabled = true;
-    }
-
-    window.fsGetDocs(window.fsQuery(window.fsCollection(window.db,'students'), window.fsWhere('academyId','==',academyId)))
-        .then(snap => {
-            const students = [];
-            snap.forEach(d => students.push({id:d.id,...d.data()}));
-            students.sort((a,b)=>(a.name||'').localeCompare(b.name||'','ko'));
-            students.forEach(s => {
-                const opt = document.createElement('option');
-                opt.value = String(s.kakaoId||s.id);
-                opt.textContent = s.name || s.id;
-                stuSel.appendChild(opt);
-            });
-            if (students.length) stuSel.disabled = false;
-        })
-        .catch(()=>{});
-}
-
-async function loadLogs(){
-    showLoader(true);
-    try {
-        const dateStart  = document.getElementById('log-filter-date-start').value;
-        const dateEnd    = document.getElementById('log-filter-date-end').value;
-        const hospitalVal= document.getElementById('log-filter-hospital-select').value;
-        const studentVal = document.getElementById('log-filter-student').value;
-        const resultVal  = document.getElementById('log-filter-result').value;
-
-        if (dateStart && dateEnd && dateStart > dateEnd){
-            showToast('시작 날짜가 종료 날짜보다 늦습니다','error');
-            showLoader(false); return;
-        }
-
-        const col = window.fsCollection(window.db, 'attendanceLogs');
-        const constraints = [];
-
-        if (dateStart) {
-            const start = new Date(dateStart + 'T00:00:00+09:00');
-            const end   = new Date((dateEnd || dateStart) + 'T23:59:59+09:00');
-            constraints.push(window.fsWhere('ts', '>=', start));
-            constraints.push(window.fsWhere('ts', '<=', end));
-        }
-        if (hospitalVal) constraints.push(window.fsWhere('hospitalId', '==', hospitalVal));
-        if (resultVal)   constraints.push(window.fsWhere('result', '==', resultVal));
-
-        const limitVal = parseInt(document.getElementById('log-filter-limit').value) || 1000;
-        constraints.push(window.fsOrderBy('ts', 'desc'));
-        constraints.push(window.fsLimit(limitVal));
-
-        const snap = await window.fsGetDocs(window.fsQuery(col, ...constraints));
-
-        let rows = [];
-        snap.forEach(d => rows.push(d.data()));
-        if (studentVal) rows = rows.filter(r => String(r.kakaoId||'') === studentVal);
-
-        document.getElementById('logs-count').textContent = `총 ${rows.length}건 조회 (최대 ${limitVal}건)`;
-
-        const tbody = document.getElementById('logs-tbody');
-        if (rows.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="16" style="text-align:center;color:var(--muted);padding:24px;">로그 없음</td></tr>';
-            showLoader(false); return;
-        }
-
-        tbody.innerHTML = rows.map(r => {
-            const result = r.result || '';
-            let rowStyle = '';
-            if (result === 'success') rowStyle = 'background:#f0fdf4;';
-            else if (result === 'duplicate') rowStyle = 'background:#fefce8;';
-            else if (result === 'error') rowStyle = 'background:#fff1f2;';
-
-            const ts = r.ts ? (r.ts.toDate ? r.ts.toDate() : new Date(r.ts.seconds*1000)) : null;
-            const tsStr = ts ? (
-                ts.toLocaleString('ko-KR', {timeZone:'Asia/Seoul',
-                    month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'})
-            ) : '-';
-
-            const bssidShort = r.bssid ? r.bssid.slice(-8) : '-';
-            const errorMsg = r.errorMsg ? escHtml(r.errorMsg.replace(/\n/g,' ')) : '-';
-            const resultLabel = result === 'success' ? '✅ 성공'
-                              : result === 'duplicate' ? '🔁 중복'
-                              : result === 'error' ? '❌ 오류' : result || '-';
-
-            return `<tr style="${rowStyle}">
-              <td style="white-space:nowrap;">${tsStr}</td>
-              <td>${escHtml(r.name||r.kakaoId||'-')}</td>
-              <td style="max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(r.hospitalId||'')}">
-                ${escHtml((r.hospitalId||'-').slice(0,14))}
-              </td>
-              <td>${escHtml(r.type||'-')}</td>
-              <td style="white-space:nowrap;">${resultLabel}</td>
-              <td>${r.dist != null ? Math.round(r.dist)+'m' : '-'}</td>
-              <td>${r.effectiveDist != null ? r.effectiveDist+'m' : '-'}</td>
-              <td>${r.accuracy != null ? r.accuracy+'m' : '-'}</td>
-              <td style="text-align:center;font-weight:700;">${r.scoreA != null ? r.scoreA : '-'}</td>
-              <td style="text-align:center;font-weight:700;">${r.scoreB != null ? r.scoreB : '-'}</td>
-              <td style="text-align:center;">${r.wifiConnected ? '✔' : '✗'}</td>
-              <td style="font-family:monospace;">${escHtml(bssidShort)}</td>
-              <td style="text-align:center;">${r.bssidTrusted ? '⭐' : '-'}</td>
-              <td>${r.anchorDist != null ? r.anchorDist+'m' : '-'}</td>
-              <td>${escHtml(r.errorType||'-')}</td>
-              <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${errorMsg}">
-                ${errorMsg}
-              </td>
-            </tr>`;
-        }).join('');
-    } catch(e) {
-        showToast('로그 불러오기 실패: '+e.message, 'error');
-        console.error(e);
-    }
-    showLoader(false);
-}
-
 // ── Utils ──────────────────────────────────────────────────
 function formatDate(ts){
     if (!ts) return '-';
@@ -2082,18 +1863,19 @@ init();
 async function loadScoringLogs() {
   showLoader(true);
   try {
-    const dateVal    = document.getElementById('sc-date').value;
-    const typeVal    = document.getElementById('sc-type').value;
-    const phaseVal   = document.getElementById('sc-phase').value;
-    const cfVal      = document.getElementById('sc-cfstatus').value;
-    const limitVal   = parseInt(document.getElementById('sc-limit').value) || 500;
+    const startVal  = document.getElementById('sc-date-start').value;
+    const endVal    = document.getElementById('sc-date-end').value;
+    const nameVal   = (document.getElementById('sc-name').value || '').trim();
+    const typeVal   = document.getElementById('sc-type').value;
+    const phaseVal  = document.getElementById('sc-phase').value;
+    const cfVal     = document.getElementById('sc-cfstatus').value;
+    const limitVal  = parseInt(document.getElementById('sc-limit').value) || 500;
 
     const col = window.fsCollection(window.db, 'scoringLogs');
     const constraints = [];
 
-    if (dateVal) {
-      constraints.push(window.fsWhere('date', '==', dateVal));
-    }
+    if (startVal) constraints.push(window.fsWhere('date', '>=', startVal));
+    if (endVal)   constraints.push(window.fsWhere('date', '<=', endVal));
     if (typeVal)  constraints.push(window.fsWhere('type', '==', typeVal));
     if (phaseVal) constraints.push(window.fsWhere('fingerprintPhase', '==', phaseVal));
     if (cfVal)    constraints.push(window.fsWhere('cfStatus', '==', cfVal));
@@ -2102,35 +1884,72 @@ async function loadScoringLogs() {
     constraints.push(window.fsLimit(limitVal));
 
     const snap = await window.fsGetDocs(window.fsQuery(col, ...constraints));
-    const rows = [];
+    let rows = [];
     snap.forEach(d => rows.push(d.data()));
+
+    // 이름 필터 (클라이언트 사이드)
+    if (nameVal) {
+      rows = rows.filter(r => (r.name || '').includes(nameVal));
+    }
 
     document.getElementById('sc-count').textContent = `총 ${rows.length}건`;
 
+    // 학생별 요약
+    const summaryMap = {};
+    rows.forEach(r => {
+      const key = r.name || String(r.kakaoId || '?');
+      if (!summaryMap[key]) summaryMap[key] = { total: 0, success: 0, dup: 0, error: 0 };
+      summaryMap[key].total++;
+      if (r.cfStatus === 'success')   summaryMap[key].success++;
+      else if (r.cfStatus === 'duplicate') summaryMap[key].dup++;
+      else if (r.cfStatus === 'error')    summaryMap[key].error++;
+    });
+
+    const summaryDiv = document.getElementById('sc-summary');
+    const summaryBody = document.getElementById('sc-summary-body');
+    if (Object.keys(summaryMap).length > 0) {
+      summaryDiv.style.display = '';
+      summaryBody.innerHTML = Object.entries(summaryMap)
+        .sort((a,b) => b[1].total - a[1].total)
+        .map(([name, s]) => `
+          <div style="background:var(--ceramic);border-radius:8px;padding:8px 12px;font-size:12px;min-width:140px;">
+            <div style="font-weight:700;margin-bottom:4px;">${escHtml(name)}</div>
+            <div style="color:var(--muted);">총 ${s.total}회 | <span style="color:#16a34a;">✔${s.success}</span> <span style="color:#ca8a04;">↩${s.dup}</span> <span style="color:#c82014;">✗${s.error}</span></div>
+          </div>
+        `).join('');
+    } else {
+      summaryDiv.style.display = 'none';
+    }
+
     const tbody = document.getElementById('sc-tbody');
     if (rows.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:24px;">로그 없음</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--muted);padding:24px;">로그 없음</td></tr>';
       showLoader(false); return;
     }
 
     tbody.innerHTML = rows.map(r => {
       const cfStatus = r.cfStatus || '';
-      const cfLabel  = cfStatus === 'success'   ? '<span class="badge badge-green">success</span>'
-                     : cfStatus === 'duplicate' ? '<span class="badge badge-yellow">duplicate</span>'
-                     : cfStatus === 'error'     ? '<span class="badge badge-red">error</span>'
+      const cfLabel  = cfStatus === 'success'   ? '<span class="badge badge-green">성공</span>'
+                     : cfStatus === 'duplicate' ? '<span class="badge badge-yellow">중복</span>'
+                     : cfStatus === 'error'     ? '<span class="badge badge-red">실패</span>'
                      : escHtml(cfStatus || '-');
-      const matchPct = r.matchPct != null ? r.matchPct + '%' : '-';
-      const score    = r.fingerprintScore != null ? r.fingerprintScore : '-';
-      const gpsAcc   = r.gpsAccuracy != null ? r.gpsAccuracy + 'm' : '-';
-      const typeLabel = r.type === 'in' ? '출근' : r.type === 'out' ? '퇴근' : escHtml(r.type || '-');
-      const phaseLabel = r.fingerprintPhase === 'active' ? '<span class="badge badge-blue">active</span>'
-                       : r.fingerprintPhase === 'collecting' ? '<span class="badge badge-gray">collecting</span>'
+      const matchPct   = r.matchPct != null ? r.matchPct + '%' : '-';
+      const score      = r.fingerprintScore != null ? r.fingerprintScore : '-';
+      const gpsAcc     = r.gpsAccuracy != null ? r.gpsAccuracy + 'm' : '-';
+      const typeLabel  = r.type === 'in' ? '출근' : r.type === 'out' ? '퇴근' : escHtml(r.type || '-');
+      const phaseLabel = r.fingerprintPhase === 'active'
+                       ? '<span class="badge badge-blue">active</span>'
+                       : r.fingerprintPhase === 'collecting'
+                       ? '<span class="badge badge-gray">collecting</span>'
                        : escHtml(r.fingerprintPhase || '-');
       const timeStr  = r.time || (r.timestamp ? r.timestamp.slice(11,16) : '-');
       const dateStr  = r.date || (r.timestamp ? r.timestamp.slice(0,10) : '-');
-      return `<tr>
+      const errType  = r.cfErrorType ? escHtml(r.cfErrorType) : '-';
+      const errMsg   = r.cfErrorMsg  ? `<span style="color:#c82014;font-size:11px;">${escHtml(r.cfErrorMsg)}</span>` : '-';
+      const rowStyle = cfStatus === 'error' ? ' style="background:#fff5f5;"' : '';
+      return `<tr${rowStyle}>
         <td style="white-space:nowrap;">${escHtml(dateStr)} ${escHtml(timeStr)}</td>
-        <td>${escHtml(r.name || String(r.kakaoId || '-'))}</td>
+        <td style="font-weight:600;">${escHtml(r.name || String(r.kakaoId || '-'))}</td>
         <td>${typeLabel}</td>
         <td>${phaseLabel}</td>
         <td style="text-align:center;font-weight:700;">${matchPct}</td>
@@ -2138,6 +1957,8 @@ async function loadScoringLogs() {
         <td style="text-align:center;">${gpsAcc}</td>
         <td style="text-align:center;">${r.wifiConnected ? '✔' : '✗'}</td>
         <td>${cfLabel}</td>
+        <td style="font-size:11px;">${errType}</td>
+        <td style="max-width:200px;">${errMsg}</td>
       </tr>`;
     }).join('');
   } catch(e) {
