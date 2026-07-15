@@ -418,6 +418,10 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
                 <th style="position:sticky;top:0;background:#fff;z-index:1;">WiFi 일치율<span class="th-help" data-tip="주변 WiFi 중 저장된 BSSID와 일치한 비율 (%)&#10;60% 이상이면 핑거프린트 점수 부여">?</span></th>
                 <th style="position:sticky;top:0;background:#fff;z-index:1;">핑거프린트점수<span class="th-help" data-tip="phase·matchPct·GPS 기반 최종 점수">?</span></th>
                 <th style="position:sticky;top:0;background:#fff;z-index:1;">GPS 정확도<span class="th-help" data-tip="기기 GPS 오차 반경 (m), 낮을수록 정밀">?</span></th>
+                <th style="position:sticky;top:0;background:#fff;z-index:1;">GPS거리<span class="th-help" data-tip="병원까지 GPS 직선 거리 (m)">?</span></th>
+                <th style="position:sticky;top:0;background:#fff;z-index:1;">유효거리<span class="th-help" data-tip="GPS 오차를 뺀 유효 거리 (m). 이 값으로 scoreA 결정">?</span></th>
+                <th style="position:sticky;top:0;background:#fff;z-index:1;">A점<span class="th-help" data-tip="GPS 유효거리 기반 점수 (≤20→5, ≤40→4, ≤60→3, ≤90→2, else→1)">?</span></th>
+                <th style="position:sticky;top:0;background:#fff;z-index:1;">B점<span class="th-help" data-tip="WiFi BSSID 신뢰도 점수 (신뢰BSSID+앵커→5, 신뢰BSSID→2, WiFi연결→1, else→0)">?</span></th>
                 <th style="position:sticky;top:0;background:#fff;z-index:1;">WiFi</th>
                 <th style="position:sticky;top:0;background:#fff;z-index:1;">CF 결과</th>
                 <th style="position:sticky;top:0;background:#fff;z-index:1;">오류유형</th>
@@ -1923,7 +1927,7 @@ async function loadScoringLogs() {
 
     const tbody = document.getElementById('sc-tbody');
     if (rows.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--muted);padding:24px;">로그 없음</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="15" style="text-align:center;color:var(--muted);padding:24px;">로그 없음</td></tr>';
       showLoader(false); return;
     }
 
@@ -1955,6 +1959,10 @@ async function loadScoringLogs() {
         <td style="text-align:center;font-weight:700;">${matchPct}</td>
         <td style="text-align:center;font-weight:700;">${score}</td>
         <td style="text-align:center;">${gpsAcc}</td>
+        <td style="text-align:center;">${r.dist != null ? r.dist + 'm' : '-'}</td>
+        <td style="text-align:center;">${r.effectiveDist != null ? r.effectiveDist + 'm' : '-'}</td>
+        <td style="text-align:center;font-weight:700;">${r.scoreA != null ? r.scoreA : '-'}</td>
+        <td style="text-align:center;font-weight:700;">${r.scoreB != null ? r.scoreB : '-'}</td>
         <td style="text-align:center;">${r.wifiConnected ? '✔' : '✗'}</td>
         <td>${cfLabel}</td>
         <td style="font-size:11px;">${errType}</td>
