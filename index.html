@@ -6,7 +6,7 @@
 <title>Here — 최고관리자</title>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-app.js";
-  import { getFirestore, doc, getDoc, setDoc, updateDoc, getDocs, collection, query, where, orderBy, addDoc, deleteDoc, writeBatch, limit } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-firestore.js";
+  import { getFirestore, doc, getDoc, setDoc, updateDoc, getDocs, collection, query, where, orderBy, addDoc, deleteDoc, writeBatch, limit, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-firestore.js";
   import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-auth.js";
   const app = initializeApp({
     apiKey:"AIzaSyBaCpQKykViq6526dCJ8mEYbUZqyg5-NUo",
@@ -24,6 +24,7 @@
   window.fsCollection = collection; window.fsQuery = query;
   window.fsWhere = where; window.fsOrderBy = orderBy;
   window.fsAddDoc = addDoc; window.fsDeleteDoc = deleteDoc; window.fsWriteBatch = writeBatch; window.fsLimit = limit;
+  window.fsServerTimestamp = serverTimestamp;
   try { await signInAnonymously(auth); } catch(e) {}
   window.fsReady = true;
   window.dispatchEvent(new Event('fsReady'));
@@ -205,8 +206,20 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
       <button class="nav-item" id="nav-payment" onclick="showPage('payment',this)">
         <span class="nav-icon">💳</span>결제 현황
       </button>
+      <button class="nav-item" id="nav-templates" onclick="showPage('templates',this)">
+        <span class="nav-icon">📄</span>문서 틀 관리
+      </button>
       <div class="sidebar-section-label">분석</div>
-      <button class="nav-item" id="nav-scoring" onclick="showPage('scoring',this);loadScoringLogs()">
+      <button class="nav-item" id="nav-logs" onclick="showPage('logs',this)">
+        <span class="nav-icon">📋</span>출결 로그
+      </button>
+      <button class="nav-item" id="nav-authreqs" onclick="showPage('authreqs',this)">
+        <span class="nav-icon">🔐</span>출결 인증 요청
+      </button>
+      <button class="nav-item" id="nav-presence" onclick="showPage('presence',this);loadPresenceLogs()">
+        <span class="nav-icon">📡</span>프레즌스 로그
+      </button>
+      <button class="nav-item" id="nav-scoring" onclick="showPage('scoring',this)">
         <span class="nav-icon">📊</span>점수 로그
       </button>
       <div class="nav-version">v1.0 · 최고관리자</div>
@@ -247,7 +260,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
           <div class="card" style="padding:0;overflow:hidden;">
             <table class="tbl">
               <thead><tr>
-                <th>이름</th><th>학원명</th><th>휴대폰</th><th>카카오ID</th><th>가입일</th><th>상태</th><th>결제</th><th>화면모드</th><th>관리</th>
+                <th>이름</th><th>학원명</th><th>휴대폰</th><th>카카오</th><th>가입일</th><th>상태</th><th>결제</th><th>화면모드</th><th>관리</th>
               </tr></thead>
               <tbody id="directors-all-list"></tbody>
             </table>
@@ -341,6 +354,182 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
         </div>
       </div>
 
+      <!-- 문서 틀 관리 -->
+      <div class="page" id="page-templates">
+        <div class="section-header">
+          <div>
+            <div class="section-title">문서 틀 관리</div>
+            <div class="section-subtitle">서식을 수정해 저장하면 원장님 화면의 문서 출력에 즉시 적용됩니다</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <select id="tpl-select" class="form-select" style="width:190px;" onchange="loadTemplateEditor()">
+              <option value="practiceCard">실습근무카드</option>
+              <option value="directEntry">직권입력관리대장</option>
+            </select>
+            <span class="badge badge-gray" id="tpl-status">확인 중...</span>
+            <button class="btn btn-primary btn-sm" onclick="saveTemplate()">저장</button>
+            <button class="btn btn-warn btn-sm" onclick="restoreTemplateDefault()">기본값 복원</button>
+          </div>
+        </div>
+        <div style="font-size:12.5px;color:#92400e;background:#fef9c3;border-radius:8px;padding:9px 14px;margin-bottom:14px;">⚠️ 클래스명(.c31, .c66 등)과 {{플레이스홀더}}는 인쇄 서식이 참조하므로 지우지 마세요.</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;height:calc(100vh - 300px);min-height:420px;">
+          <div style="display:flex;flex-direction:column;min-width:0;">
+            <div class="form-label" style="margin-bottom:6px;">HTML 편집</div>
+            <textarea id="tpl-editor" oninput="onTplEditorInput()" spellcheck="false" style="flex:1;width:100%;resize:none;border:1.5px solid var(--border);border-radius:var(--radius);padding:14px;font-family:monospace;font-size:12px;line-height:1.5;background:#fff;color:var(--text);outline:none;white-space:pre;overflow:auto;"></textarea>
+          </div>
+          <div style="display:flex;flex-direction:column;min-width:0;">
+            <div class="form-label" style="margin-bottom:6px;">실시간 미리보기</div>
+            <iframe id="tpl-preview" style="flex:1;width:100%;border:1.5px solid var(--border);border-radius:var(--radius);background:#fff;"></iframe>
+          </div>
+        </div>
+        <details class="card" style="margin-top:16px;padding:14px 20px;">
+          <summary style="cursor:pointer;font-weight:700;font-size:14px;">문서 계산·표시 규칙 <span class="badge badge-gray" id="docrules-status" style="margin-left:6px;">확인 중...</span></summary>
+          <div style="font-size:12.5px;color:var(--muted);margin:10px 0 14px;">실습근무카드·직권입력관리대장 생성 시 두 문서에 공통 적용되는 계산 기준과 상태 문구·색상입니다.</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:12px;">
+            <div><label class="form-label">점심 차감 기준(분)</label><input type="number" class="form-input" id="dr-lunch-threshold"></div>
+            <div><label class="form-label">일일 최대 인정 시간</label><input type="number" class="form-input" id="dr-max-hours"></div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:12px;">
+            <div><label class="form-label">결석 문구</label><input type="text" class="form-input" id="dr-label-absent"></div>
+            <div><label class="form-label">지각 문구</label><input type="text" class="form-input" id="dr-label-late"></div>
+            <div><label class="form-label">조퇴 문구</label><input type="text" class="form-input" id="dr-label-early"></div>
+            <div><label class="form-label">보강 문구</label><input type="text" class="form-input" id="dr-label-makeup"></div>
+            <div><label class="form-label">출석 문구</label><input type="text" class="form-input" id="dr-label-present"></div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:14px;">
+            <div><label class="form-label">요약 결석 색</label><input type="color" class="form-input" id="dr-color-absent" style="padding:4px;height:38px;"></div>
+            <div><label class="form-label">요약 지각 색</label><input type="color" class="form-input" id="dr-color-late" style="padding:4px;height:38px;"></div>
+            <div><label class="form-label">요약 조퇴 색</label><input type="color" class="form-input" id="dr-color-early" style="padding:4px;height:38px;"></div>
+            <div><label class="form-label">카드 상태 문구 색</label><input type="color" class="form-input" id="dr-color-card" style="padding:4px;height:38px;"></div>
+            <div><label class="form-label">행 강조 배경색</label><input type="color" class="form-input" id="dr-color-rowbg" style="padding:4px;height:38px;"></div>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-primary btn-sm" onclick="saveDocRules()">규칙 저장</button>
+            <button class="btn btn-warn btn-sm" onclick="restoreDocRulesDefault()">기본값 복원</button>
+          </div>
+        </details>
+      </div>
+
+      <!-- 출결 로그 -->
+      <div class="page" id="page-logs">
+        <div class="section-header">
+          <div>
+            <div class="section-title">출결 로그</div>
+            <div class="section-subtitle">출퇴근 시도 기록 — 승인·거절 모두 포함</div>
+          </div>
+          <button class="btn btn-outline btn-sm" onclick="loadLogs()">새로고침</button>
+        </div>
+        <div class="card" style="margin-bottom:16px;">
+          <div class="form-row" style="flex-wrap:wrap;gap:12px;align-items:flex-end;">
+            <div class="form-group" style="min-width:130px;">
+              <label class="form-label">시작 날짜</label>
+              <input class="form-input" type="date" id="log-filter-date-start">
+            </div>
+            <div class="form-group" style="min-width:130px;">
+              <label class="form-label">종료 날짜</label>
+              <input class="form-input" type="date" id="log-filter-date-end">
+            </div>
+            <div class="form-group" style="min-width:150px;">
+              <label class="form-label">학원</label>
+              <select class="form-select" id="log-filter-academy" onchange="onLogAcademyChange()">
+                <option value="">전체 학원</option>
+              </select>
+            </div>
+            <div class="form-group" style="min-width:150px;">
+              <label class="form-label">병원</label>
+              <select class="form-select" id="log-filter-hospital-select" disabled>
+                <option value="">전체 병원</option>
+              </select>
+            </div>
+            <div class="form-group" style="min-width:140px;">
+              <label class="form-label">학생</label>
+              <select class="form-select" id="log-filter-student" disabled>
+                <option value="">전체 학생</option>
+              </select>
+            </div>
+            <div class="form-group" style="min-width:120px;">
+              <label class="form-label">결과</label>
+              <select class="form-select" id="log-filter-result">
+                <option value="">전체</option>
+                <option value="success">성공</option>
+                <option value="duplicate">중복</option>
+                <option value="error">오류</option>
+              </select>
+            </div>
+            <div class="form-group" style="min-width:110px;">
+              <label class="form-label">표시 개수</label>
+              <select class="form-select" id="log-filter-limit">
+                <option value="300">300건</option>
+                <option value="500">500건</option>
+                <option value="1000" selected>1000건</option>
+                <option value="3000">3000건</option>
+              </select>
+            </div>
+            <button class="btn btn-primary" onclick="loadLogs()" style="height:40px;align-self:flex-end;">조회</button>
+          </div>
+        </div>
+        <div id="logs-count" style="font-size:13px;color:var(--muted);margin-bottom:10px;"></div>
+        <div class="card" style="padding:0;overflow:auto;">
+          <table class="tbl" id="logs-table" style="font-size:12px;min-width:1100px;">
+            <thead><tr>
+              <th>시각<span class="th-help" data-tip="출퇴근 시도 시각 (KST)">?</span></th>
+              <th>학생<span class="th-help" data-tip="학생 이름 또는 카카오 ID">?</span></th>
+              <th>병원ID<span class="th-help" data-tip="Firestore 병원 문서 ID&#10;(hospitalId 필터와 동일)">?</span></th>
+              <th>유형<span class="th-help" data-tip="출근 / 퇴근">?</span></th>
+              <th>결과<span class="th-help" data-tip="✅ 성공 — 정상 처리&#10;🔁 중복 — 이미 기록됨&#10;❌ 오류 — 거절됨">?</span></th>
+              <th>dist<span class="th-help" data-tip="학생 GPS ↔ 병원 좌표 직선 거리 (m)&#10;보정 전 원시 거리">?</span></th>
+              <th>eff<span class="th-help" data-tip="유효 거리 effectiveDist (m)&#10;= dist − min(acc, 40) × 0.5&#10;GPS 오차를 최대 20m 차감한 값&#10;A점수 산정 기준">?</span></th>
+              <th>acc<span class="th-help" data-tip="기기 GPS 정확도 반경 (m)&#10;낮을수록 정밀&#10;40m 초과분은 보정에 반영 안 됨">?</span></th>
+              <th>A점<span class="th-help" data-tip="GPS 유효거리 기반 점수 (1~5점)&#10;≤ 20m → 5점&#10;≤ 40m → 4점&#10;≤ 60m → 3점&#10;≤ 90m → 2점&#10;그 외  → 1점">?</span></th>
+              <th>B점<span class="th-help" data-tip="WiFi / BSSID 신뢰 점수 (0~5점)&#10;신뢰BSSID + 앵커 50m 이내 → 5점&#10;신뢰BSSID만 (앵커 초과)  → 2점&#10;WiFi 연결만 (미인증 BSSID) → 1점&#10;없음 → 0점&#10;&#10;A점 + B점 ≥ 5 이면 통과">?</span></th>
+              <th>WiFi<span class="th-help" data-tip="기기가 WiFi에 연결된 여부&#10;✔ 연결됨 / ✗ 미연결">?</span></th>
+              <th>BSSID<span class="th-help" data-tip="연결된 WiFi AP 주소 (마지막 8자리)&#10;신뢰 등록 여부 → 신뢰 열 참조">?</span></th>
+              <th>신뢰<span class="th-help" data-tip="⭐ 관리자가 신뢰 등록한 BSSID&#10;신뢰 BSSID는 B점 산정에 사용됨">?</span></th>
+              <th>앵커<span class="th-help" data-tip="신뢰 BSSID의 GPS 앵커와 현재 위치 간 거리 (m)&#10;50m 이하면 B점 5점&#10;50m 초과면 B점 2점">?</span></th>
+              <th>오류유형<span class="th-help" data-tip="distance — 거리/위치 문제&#10;wifi    — WiFi 점수 부족&#10;auth    — 인증 실패&#10;server  — 서버 오류">?</span></th>
+              <th>오류메시지<span class="th-help" data-tip="학생 화면에 실제로 표시된 오류 문구">?</span></th>
+            </tr></thead>
+            <tbody id="logs-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 출결 인증 요청 내역 -->
+      <div class="page" id="page-authreqs">
+        <div class="section-header">
+          <div>
+            <div class="section-title">출결 인증 요청 내역</div>
+            <div class="section-subtitle">원장님이 전송한 모든 출결 인증 요청 (담당자 전화번호 전체 표시)</div>
+          </div>
+          <button class="btn btn-outline btn-sm" onclick="loadAuthReqs()">새로고침</button>
+        </div>
+        <div id="authreqs-count" style="font-size:13px;color:var(--muted);margin-bottom:10px;"></div>
+        <div id="authreqs-list"></div>
+      </div>
+
+      <!-- 프레즌스 로그 -->
+      <div class="page" id="page-presence">
+        <div class="section-header">
+          <div>
+            <div class="section-title">프레즌스 로그</div>
+            <div class="section-subtitle">30분 WiFi 체크 기록 · iOS 지오펜스 이탈 이벤트</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <select id="presence-filter-type" onchange="loadPresenceLogs()" style="padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;">
+              <option value="">전체</option>
+              <option value="presenceLogs">WiFi 체크</option>
+              <option value="geofenceEvents">지오펜스</option>
+              <option value="scoringLogs">점수 이력</option>
+            </select>
+            <input type="date" id="presence-filter-date" onchange="loadPresenceLogs()" style="padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;">
+            <button onclick="loadPresenceLogs()" style="padding:8px 16px;background:var(--accent);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;">새로고침</button>
+          </div>
+        </div>
+        <div id="presence-log-container" style="overflow-x:auto;">
+          <div id="presence-log-content" style="color:var(--muted);text-align:center;padding:40px;">조회 중...</div>
+        </div>
+      </div>
+
       <!-- 점수 로그 -->
       <div class="page" id="page-scoring">
         <div class="section-header">
@@ -422,6 +611,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
                 <th style="position:sticky;top:0;background:#fff;z-index:1;">유효거리<span class="th-help" data-tip="GPS 오차를 뺀 유효 거리 (m). 이 값으로 scoreA 결정">?</span></th>
                 <th style="position:sticky;top:0;background:#fff;z-index:1;">A점<span class="th-help" data-tip="GPS 유효거리 기반 점수 (≤20→5, ≤40→4, ≤60→3, ≤90→2, else→1)">?</span></th>
                 <th style="position:sticky;top:0;background:#fff;z-index:1;">B점<span class="th-help" data-tip="WiFi BSSID 신뢰도 점수 (신뢰BSSID+앵커→5, 신뢰BSSID→2, WiFi연결→1, else→0)">?</span></th>
+                <th style="position:sticky;top:0;background:#fff;z-index:1;">C점<span class="th-help" data-tip="WiFi 핑거프린트 일치율 점수 (active 단계만, matchPct/10 내림, 최대 10)">?</span></th>
                 <th style="position:sticky;top:0;background:#fff;z-index:1;">WiFi</th>
                 <th style="position:sticky;top:0;background:#fff;z-index:1;">CF 결과</th>
                 <th style="position:sticky;top:0;background:#fff;z-index:1;">오류유형</th>
@@ -723,6 +913,80 @@ function showApp(){
     loadDirectors();
 }
 
+// ── 프레즌스 로그 ──────────────────────────────────────────
+async function loadPresenceLogs() {
+  const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const el = document.getElementById('presence-log-content');
+  el.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted);">로딩 중...</div>';
+
+  const typeFilter = document.getElementById('presence-filter-type')?.value || '';
+  const dateFilter = document.getElementById('presence-filter-date')?.value || '';
+
+  const collections = typeFilter
+    ? [typeFilter]
+    : ['presenceLogs', 'geofenceEvents', 'scoringLogs'];
+
+  const allRows = [];
+  try {
+    for (const col of collections) {
+      let q = window.fsCollection(window.db, col);
+      if (dateFilter) q = window.fsQuery(q, window.fsWhere('date', '==', dateFilter));
+      q = window.fsQuery(q, window.fsOrderBy('timestamp', 'desc'), window.fsLimit(200));
+      const snap = await window.fsGetDocs(q);
+      snap.forEach(d => allRows.push({ _col: col, ...d.data() }));
+    }
+  } catch(e) {
+    el.innerHTML = '<div style="color:#ef4444;padding:20px;">데이터 로드 실패</div>';
+    return;
+  }
+
+  if (!allRows.length) {
+    el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);">데이터 없음</div>';
+    return;
+  }
+
+  allRows.sort((a,b) => b.timestamp > a.timestamp ? 1 : -1);
+
+  const colLabel = { presenceLogs: 'WiFi체크', geofenceEvents: '지오펜스', scoringLogs: '점수이력' };
+  const colColor = { presenceLogs: '#3b82f6', geofenceEvents: '#f59e0b', scoringLogs: '#10b981' };
+
+  const rows = allRows.map((r,i) => {
+    const bg = i%2===0?'':'background:#f8fafc;';
+    const badge = `<span style="background:${colColor[r._col]||'#999'};color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;">${esc(colLabel[r._col]||r._col)}</span>`;
+    const platform = r.platform ? `<span style="font-size:11px;color:var(--muted);">${esc(r.platform)}</span>` : '';
+    let detail = '';
+    if (r._col === 'presenceLogs') {
+      const inHosp = r.isInHospital ? '<span style="color:#10b981;font-weight:700;">✓ 병원내</span>' : '<span style="color:#ef4444;font-weight:700;">✗ 이탈</span>';
+      detail = `일치율: <b>${esc(r.wifiMatchPct)}%</b> | 주변AP: ${esc(r.currentBssidCount)}개 | ${inHosp}`;
+    } else if (r._col === 'geofenceEvents') {
+      const ev = r.event === 'EXIT'
+        ? '<span style="color:#ef4444;font-weight:700;">🚨 이탈</span>'
+        : '<span style="color:#10b981;font-weight:700;">✓ 복귀</span>';
+      detail = ev;
+    } else if (r._col === 'scoringLogs') {
+      detail = `${esc(r.type)} | 점수: <b>${esc(r.fingerprintScore)}</b> | 일치율: ${esc(r.matchPct)}% | GPS정확도: ${esc(r.gpsAccuracy)}m | 단계: ${esc(r.phase)} | CF: ${esc(r.cfStatus)}`;
+    }
+    return `<tr style="${bg}">
+      <td style="padding:8px 12px;">${badge}</td>
+      <td style="padding:8px 12px;">${esc(r.name||r.kakaoId||'-')}</td>
+      <td style="padding:8px 12px;white-space:nowrap;">${esc(r.date||'')} ${esc(r.time||'')}</td>
+      <td style="padding:8px 12px;">${platform}</td>
+      <td style="padding:8px 12px;font-size:13px;">${detail}</td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px;">
+    <thead><tr style="background:#f1f5f9;font-weight:700;">
+      <th style="padding:10px 12px;text-align:left;">유형</th>
+      <th style="padding:10px 12px;text-align:left;">학생</th>
+      <th style="padding:10px 12px;text-align:left;">일시</th>
+      <th style="padding:10px 12px;text-align:left;">기기</th>
+      <th style="padding:10px 12px;text-align:left;">상세</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
 // ── Navigation ─────────────────────────────────────────────
 function showPage(id, btn){
     document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
@@ -733,6 +997,10 @@ function showPage(id, btn){
     if (id==='payment')   loadPayments();
     if (id==='data')      initDataPage();
     if (id==='academies') loadAcademies();
+    if (id==='logs')      initLogsPage();
+    if (id==='authreqs')  loadAuthReqs();
+    if (id==='scoring')   loadScoringLogs();
+    if (id==='templates') { loadTemplateEditor(); loadDocRulesEditor(); }
 }
 
 // ── Directors ──────────────────────────────────────────────
@@ -789,12 +1057,17 @@ function renderDirectors(){
         if (vm === 'student') return '<span class="badge badge-yellow">학생화면</span>';
         return '<span class="badge badge-gray">'+vm+'</span>';
     };
+    const kakaoCell = d => d.kakaoId
+        ? `<div style="font-size:11px;color:var(--muted);margin-bottom:3px;word-break:break-all;">${escHtml(d.kakaoId)}</div>
+           <span class="badge badge-green">연결됨</span>
+           <button class="btn btn-outline btn-sm" style="margin-left:4px;font-size:10px;" onclick="resetKakaoId('${d.id}')">초기화</button>`
+        : `<span class="badge badge-gray">미연결</span>`;
     const rows = allDirectors.map(d=>`
       <tr>
         <td style="font-weight:600;">${escHtml(d.name||'-')}</td>
         <td>${escHtml(d.academyName||'-')}</td>
         <td>${escHtml(d.phone||'-')}</td>
-        <td style="font-size:11px;color:var(--muted);">${escHtml(d.kakaoId||'-')}</td>
+        <td>${kakaoCell(d)}</td>
         <td style="color:var(--muted);font-size:12px;">${formatDate(d.createdAt)}</td>
         <td>${statusBadge(d.status)}</td>
         <td>${payBadge(d.paymentStatus)}</td>
@@ -836,6 +1109,17 @@ async function revokeDirector(id){
     try {
         await window.fsUpdateDoc(window.fsDoc(window.db,'directors',id),{status:'pending'});
         showToast('승인 취소됨','info');
+        await loadDirectors();
+    } catch(e){ showToast('실패: '+e.message,'error'); }
+    showLoader(false);
+}
+
+async function resetKakaoId(id){
+    if (!confirm('카카오 연동을 초기화하시겠습니까?\n해당 원장님이 앱에서 전화번호로 재연동할 수 있습니다.')) return;
+    showLoader(true);
+    try {
+        await window.fsUpdateDoc(window.fsDoc(window.db,'directors',id),{kakaoId:null});
+        showToast('카카오 연동 초기화됨','info');
         await loadDirectors();
     } catch(e){ showToast('실패: '+e.message,'error'); }
     showLoader(false);
@@ -1109,17 +1393,65 @@ function renderHospitalList(hospitals){
     el.innerHTML = hospitals.map((h,i)=>`
       <div style="background:#f8f7f5;border-radius:10px;margin-bottom:8px;overflow:hidden;">
         <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;">
-          <div>
-            <div style="font-size:15px;font-weight:700;">${escHtml(h.name)}</div>
+          <div style="flex:1;min-width:0;margin-right:10px;">
+            <div id="hosp-name-display-${i}" style="font-size:15px;font-weight:700;">${escHtml(h.name)}</div>
+            <div id="hosp-name-edit-${i}" style="display:none;margin-top:4px;">
+              <input type="text" id="hosp-name-input-${i}" value="${escHtml(h.name)}"
+                style="padding:6px 10px;border:1.5px solid var(--accent);border-radius:7px;font-size:14px;font-weight:700;outline:none;width:100%;"
+                onkeydown="if(event.key==='Enter')renameHospital(${i});if(event.key==='Escape')cancelRenameHospital(${i})">
+            </div>
             <div style="font-size:11px;color:var(--muted);margin-top:2px;">기본 위도 ${h.lat?.toFixed(6)} / 경도 ${h.lon?.toFixed(6)}</div>
           </div>
-          <div style="display:flex;gap:6px;">
+          <div style="display:flex;gap:6px;flex-shrink:0;">
+            <button id="hosp-rename-btn-${i}" class="btn btn-outline btn-sm" onclick="startRenameHospital(${i})">이름 변경</button>
+            <button id="hosp-rename-save-${i}" class="btn btn-primary btn-sm" style="display:none;" onclick="renameHospital(${i})">저장</button>
+            <button id="hosp-rename-cancel-${i}" class="btn btn-sm" style="display:none;background:rgba(0,0,0,0.08);color:var(--text);" onclick="cancelRenameHospital(${i})">취소</button>
             <button class="btn btn-outline btn-sm" onclick="toggleWaypointEdit(${i},'${escHtml(h.name).replace(/'/g,"\\'")}')">보조좌표</button>
             <button class="btn btn-danger btn-sm" data-hosp-name="${escHtml(h.name)}" onclick="removeHospital(this.dataset.hospName)">삭제</button>
           </div>
         </div>
         <div id="wp-edit-${i}" style="display:none;padding:0 14px 14px;border-top:1px solid #e5e3df;"></div>
       </div>`).join('');
+}
+
+function startRenameHospital(i){
+    document.getElementById('hosp-name-display-'+i).style.display = 'none';
+    document.getElementById('hosp-name-edit-'+i).style.display = 'block';
+    document.getElementById('hosp-rename-btn-'+i).style.display = 'none';
+    document.getElementById('hosp-rename-save-'+i).style.display = '';
+    document.getElementById('hosp-rename-cancel-'+i).style.display = '';
+    const inp = document.getElementById('hosp-name-input-'+i);
+    inp.focus();
+    inp.select();
+}
+
+function cancelRenameHospital(i){
+    document.getElementById('hosp-name-display-'+i).style.display = '';
+    document.getElementById('hosp-name-edit-'+i).style.display = 'none';
+    document.getElementById('hosp-rename-btn-'+i).style.display = '';
+    document.getElementById('hosp-rename-save-'+i).style.display = 'none';
+    document.getElementById('hosp-rename-cancel-'+i).style.display = 'none';
+}
+
+async function renameHospital(i){
+    if (!currentHospitalAcademyId) return;
+    const a = allAcademies.find(x=>x.id===currentHospitalAcademyId);
+    const hospitals = a?.hospitals||[];
+    const oldName = hospitals[i]?.name;
+    const newName = document.getElementById('hosp-name-input-'+i)?.value.trim();
+    if (!newName){ showToast('병원명을 입력해주세요','error'); return; }
+    if (newName === oldName){ cancelRenameHospital(i); return; }
+    if (hospitals.some((h,j)=>j!==i && h.name===newName)){ showToast('이미 같은 이름의 병원이 있습니다','error'); return; }
+    showLoader(true);
+    try {
+        const updated = hospitals.map((h,j)=> j===i ? {...h, name:newName} : h);
+        await window.fsUpdateDoc(window.fsDoc(window.db,'academies',currentHospitalAcademyId),{hospitals:updated});
+        showToast('병원 이름 변경 완료','success');
+        await loadAcademies();
+        const refreshed = allAcademies.find(x=>x.id===currentHospitalAcademyId);
+        renderHospitalList(refreshed?.hospitals||[]);
+    } catch(e){ showToast('저장 실패: '+e.message,'error'); }
+    showLoader(false);
 }
 
 async function searchHospital(){
@@ -1236,7 +1568,10 @@ async function toggleWaypointEdit(i, name){
     const hospId = hospIdFromName(name);
     let wps = [{lat:'',lon:''},{lat:'',lon:''}];
     try {
-        const snap = await window.fsGetDoc(window.fsDoc(window.db,'hospitals',hospId));
+        const docRef = currentHospitalAcademyId
+            ? window.fsDoc(window.db,'hospitals',currentHospitalAcademyId,'hospitals',hospId)
+            : window.fsDoc(window.db,'hospitals',hospId);
+        const snap = await window.fsGetDoc(docRef);
         if (snap.exists()){
             const existing = snap.data().waypoints||[];
             wps = [
@@ -1269,7 +1604,10 @@ async function saveWaypoints(i, name){
     }
     showLoader(true);
     try {
-        await window.fsSetDoc(window.fsDoc(window.db,'hospitals',hospId),{waypoints:wps},{merge:true});
+        const docRef = currentHospitalAcademyId
+            ? window.fsDoc(window.db,'hospitals',currentHospitalAcademyId,'hospitals',hospId)
+            : window.fsDoc(window.db,'hospitals',hospId);
+        await window.fsSetDoc(docRef,{waypoints:wps},{merge:true});
         showToast(name+' 보조좌표 저장 완료 ('+wps.length+'개)','success');
     } catch(e){ showToast('저장 실패: '+e.message,'error'); }
     showLoader(false);
@@ -1851,6 +2189,413 @@ async function saveAttRecord(){
     showLoader(false);
 }
 
+// ── Attendance Logs ────────────────────────────────────────
+function initLogsPage(){
+    const today = todayKST();
+    if (!document.getElementById('log-filter-date-start').value) document.getElementById('log-filter-date-start').value = today;
+    if (!document.getElementById('log-filter-date-end').value)   document.getElementById('log-filter-date-end').value   = today;
+    if (!allAcademies.length) loadAcademies().then(populateLogAcademySelect);
+    else populateLogAcademySelect();
+    loadLogs();
+}
+
+function populateLogAcademySelect(){
+    const sel = document.getElementById('log-filter-academy');
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">전체 학원</option>'
+        + allAcademies.map(a=>`<option value="${a.id}">${escHtml(a.name)}</option>`).join('');
+    if (prev) sel.value = prev;
+}
+
+function onLogAcademyChange(){
+    const academyId = document.getElementById('log-filter-academy').value;
+    const hospSel   = document.getElementById('log-filter-hospital-select');
+    const stuSel    = document.getElementById('log-filter-student');
+    hospSel.innerHTML = '<option value="">전체 병원</option>';
+    stuSel.innerHTML  = '<option value="">전체 학생</option>';
+    stuSel.disabled   = true;
+    if (!academyId){ hospSel.disabled = true; return; }
+
+    const hospitals = allAcademies.find(a=>a.id===academyId)?.hospitals || [];
+    if (hospitals.length){
+        hospitals.forEach(h => {
+            const opt = document.createElement('option');
+            opt.value = hospIdFromName(h.name);
+            opt.textContent = h.name;
+            hospSel.appendChild(opt);
+        });
+        hospSel.disabled = false;
+    } else {
+        hospSel.disabled = true;
+    }
+
+    window.fsGetDocs(window.fsQuery(window.fsCollection(window.db,'students'), window.fsWhere('academyId','==',academyId)))
+        .then(snap => {
+            const students = [];
+            snap.forEach(d => students.push({id:d.id,...d.data()}));
+            students.sort((a,b)=>(a.name||'').localeCompare(b.name||'','ko'));
+            students.forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = String(s.kakaoId||s.id);
+                opt.textContent = s.name || s.id;
+                stuSel.appendChild(opt);
+            });
+            if (students.length) stuSel.disabled = false;
+        })
+        .catch(()=>{});
+}
+
+async function loadLogs(){
+    showLoader(true);
+    try {
+        const dateStart  = document.getElementById('log-filter-date-start').value;
+        const dateEnd    = document.getElementById('log-filter-date-end').value;
+        const hospitalVal= document.getElementById('log-filter-hospital-select').value;
+        const studentVal = document.getElementById('log-filter-student').value;
+        const resultVal  = document.getElementById('log-filter-result').value;
+
+        if (dateStart && dateEnd && dateStart > dateEnd){
+            showToast('시작 날짜가 종료 날짜보다 늦습니다','error');
+            showLoader(false); return;
+        }
+
+        const col = window.fsCollection(window.db, 'attendanceLogs');
+        const constraints = [];
+
+        if (dateStart) {
+            const start = new Date(dateStart + 'T00:00:00+09:00');
+            const end   = new Date((dateEnd || dateStart) + 'T23:59:59+09:00');
+            constraints.push(window.fsWhere('ts', '>=', start));
+            constraints.push(window.fsWhere('ts', '<=', end));
+        }
+        if (hospitalVal) constraints.push(window.fsWhere('hospitalId', '==', hospitalVal));
+        if (resultVal)   constraints.push(window.fsWhere('result', '==', resultVal));
+
+        const limitVal = parseInt(document.getElementById('log-filter-limit').value) || 1000;
+        constraints.push(window.fsOrderBy('ts', 'desc'));
+        constraints.push(window.fsLimit(limitVal));
+
+        const snap = await window.fsGetDocs(window.fsQuery(col, ...constraints));
+
+        let rows = [];
+        snap.forEach(d => rows.push(d.data()));
+        if (studentVal) rows = rows.filter(r => String(r.kakaoId||'') === studentVal);
+
+        document.getElementById('logs-count').textContent = `총 ${rows.length}건 조회 (최대 ${limitVal}건)`;
+
+        const tbody = document.getElementById('logs-tbody');
+        if (rows.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="16" style="text-align:center;color:var(--muted);padding:24px;">로그 없음</td></tr>';
+            showLoader(false); return;
+        }
+
+        tbody.innerHTML = rows.map(r => {
+            const result = r.result || '';
+            let rowStyle = '';
+            if (result === 'success') rowStyle = 'background:#f0fdf4;';
+            else if (result === 'duplicate') rowStyle = 'background:#fefce8;';
+            else if (result === 'error') rowStyle = 'background:#fff1f2;';
+
+            const ts = r.ts ? (r.ts.toDate ? r.ts.toDate() : new Date(r.ts.seconds*1000)) : null;
+            const tsStr = ts ? (
+                ts.toLocaleString('ko-KR', {timeZone:'Asia/Seoul',
+                    month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'})
+            ) : '-';
+
+            const bssidShort = r.bssid ? r.bssid.slice(-8) : '-';
+            const errorMsg = r.errorMsg ? escHtml(r.errorMsg.replace(/\n/g,' ')) : '-';
+            const resultLabel = result === 'success' ? '✅ 성공'
+                              : result === 'duplicate' ? '🔁 중복'
+                              : result === 'error' ? '❌ 오류' : result || '-';
+
+            return `<tr style="${rowStyle}">
+              <td style="white-space:nowrap;">${tsStr}</td>
+              <td>${escHtml(r.name||r.kakaoId||'-')}</td>
+              <td style="max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(r.hospitalId||'')}">
+                ${escHtml((r.hospitalId||'-').slice(0,14))}
+              </td>
+              <td>${escHtml(r.type||'-')}</td>
+              <td style="white-space:nowrap;">${resultLabel}</td>
+              <td>${r.dist != null ? Math.round(r.dist)+'m' : '-'}</td>
+              <td>${r.effectiveDist != null ? r.effectiveDist+'m' : '-'}</td>
+              <td>${r.accuracy != null ? r.accuracy+'m' : '-'}</td>
+              <td style="text-align:center;font-weight:700;">${r.scoreA != null ? r.scoreA : '-'}</td>
+              <td style="text-align:center;font-weight:700;">${r.scoreB != null ? r.scoreB : '-'}</td>
+              <td style="text-align:center;">${r.wifiConnected ? '✔' : '✗'}</td>
+              <td style="font-family:monospace;">${escHtml(bssidShort)}</td>
+              <td style="text-align:center;">${r.bssidTrusted ? '⭐' : '-'}</td>
+              <td>${r.anchorDist != null ? r.anchorDist+'m' : '-'}</td>
+              <td>${escHtml(r.errorType||'-')}</td>
+              <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${errorMsg}">
+                ${errorMsg}
+              </td>
+            </tr>`;
+        }).join('');
+    } catch(e) {
+        showToast('로그 불러오기 실패: '+e.message, 'error');
+        console.error(e);
+    }
+    showLoader(false);
+}
+
+// ── Auth Requests ──────────────────────────────────────────
+async function loadAuthReqs(){
+    const list = document.getElementById('authreqs-list');
+    const countEl = document.getElementById('authreqs-count');
+    list.innerHTML = '<p style="color:var(--muted);padding:24px;">불러오는 중...</p>';
+    try {
+        const snap = await window.fsGetDocs(
+            window.fsQuery(window.fsCollection(window.db,'attendanceAuthRequests'), window.fsOrderBy('requestedAt','desc'))
+        );
+        const items = [];
+        snap.forEach(d => items.push({ id: d.id, ...d.data() }));
+        countEl.textContent = `총 ${items.length}건`;
+        if (!items.length) { list.innerHTML = '<p style="color:var(--muted);padding:24px;">내역이 없습니다.</p>'; return; }
+
+        const typeLabel = t => t==='in'?'출근':t==='out'?'퇴근':'출+퇴근';
+        const statusBadge = s => s==='submitted'
+            ? '<span style="background:#d1fae5;color:#065f46;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700;">제출완료</span>'
+            : '<span style="background:#fef3c7;color:#92400e;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700;">대기중</span>';
+        const sigImg = b64 => {
+            if (!b64) return '<span style="color:var(--muted);font-size:12px;">없음</span>';
+            const m = /^data:image\/(png|jpe?g|gif|webp);base64,([A-Za-z0-9+/]+=*)$/.exec(b64);
+            const mime = m ? m[1] : 'png';
+            const body = m ? m[2] : b64;
+            if (!/^[A-Za-z0-9+/]+=*$/.test(body)) return '<span style="color:var(--muted);font-size:12px;">잘못된 서명 데이터</span>';
+            return `<img src="data:image/${mime};base64,${body}" style="max-width:140px;max-height:70px;border:1px solid #e5e7eb;border-radius:6px;display:block;margin-top:4px;">`;
+        };
+
+        list.innerHTML = items.map(r => `
+<div class="card" style="margin-bottom:14px;">
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+    <div>
+      <span style="font-weight:700;font-size:15px;">${escHtml(r.date||'-')}</span>
+      <span style="margin-left:8px;font-size:13px;color:var(--muted);">${typeLabel(r.type)}</span>
+      <span style="margin-left:8px;">${statusBadge(r.status)}</span>
+    </div>
+    <div style="font-size:12px;color:var(--muted);">요청: ${formatDate(r.requestedAt)}${r.submittedAt?' &nbsp;|&nbsp; 제출: '+formatDate(r.submittedAt):''}</div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;font-size:13px;">
+    <div><span style="color:var(--muted);">학생 kakaoId</span><br><strong>${escHtml(String(r.kakaoId||'-'))}</strong></div>
+    <div><span style="color:var(--muted);">학원 ID</span><br><strong>${escHtml(r.academyId||'-')}</strong></div>
+    <div><span style="color:var(--muted);">출근 시간</span><br><strong>${escHtml(r.inTime||'-')}</strong></div>
+    <div><span style="color:var(--muted);">퇴근 시간</span><br><strong>${escHtml(r.outTime||'-')}</strong></div>
+    <div><span style="color:var(--muted);">담당자 전화번호</span><br><strong>${escHtml(r.managerPhone||'-')}</strong></div>
+    ${r.note?`<div style="grid-column:1/-1;"><span style="color:var(--muted);">메모</span><br>${escHtml(r.note)}</div>`:''}
+  </div>
+  ${(r.studentSig||r.managerSig)?`
+  <div style="display:flex;gap:24px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
+    <div><div style="font-size:11px;color:var(--muted);margin-bottom:2px;">학생 서명</div>${sigImg(r.studentSig)}</div>
+    <div><div style="font-size:11px;color:var(--muted);margin-bottom:2px;">담당자 서명</div>${sigImg(r.managerSig)}</div>
+  </div>`:''}
+</div>`).join('');
+    } catch(e) {
+        list.innerHTML = `<p style="color:#c82014;padding:24px;">불러오기 실패: ${e.message}</p>`;
+    }
+    showLoader(false);
+}
+
+// ── 문서 틀 관리 ────────────────────────────────────────────
+const TPL_DEFS = {
+    practiceCard: { label:'실습근무카드', url:'./template-card.html' },
+    directEntry:  { label:'직권입력관리대장', url:'./template-entry.html' }
+};
+const tplStaticCache = {};
+let tplPreviewTimer = null;
+
+async function fetchTplStatic(id){
+    if (!tplStaticCache[id]){
+        const resp = await fetch(TPL_DEFS[id].url);
+        if (!resp.ok) throw new Error('정적 파일 로드 실패 ('+resp.status+')');
+        tplStaticCache[id] = await resp.text();
+    }
+    return tplStaticCache[id];
+}
+
+function setTplStatus(isOverride){
+    const el = document.getElementById('tpl-status');
+    if (isOverride){ el.className='badge badge-yellow'; el.textContent='수정본 적용 중'; }
+    else           { el.className='badge badge-gray';   el.textContent='기본값 사용 중'; }
+}
+
+async function loadTemplateEditor(){
+    const id = document.getElementById('tpl-select').value;
+    showLoader(true);
+    try {
+        let html = null;
+        try {
+            const snap = await window.fsGetDoc(window.fsDoc(window.db,'templates',id));
+            if (snap.exists() && snap.data().html) html = snap.data().html;
+        } catch(e){ console.warn('템플릿 오버라이드 로드 실패, 정적 파일 사용:', e); }
+        setTplStatus(html !== null);
+        if (html === null) html = await fetchTplStatic(id);
+        document.getElementById('tpl-editor').value = html;
+        updateTplPreview();
+    } catch(e){ showToast('템플릿 불러오기 실패: '+e.message,'error'); }
+    showLoader(false);
+}
+
+function updateTplPreview(){
+    document.getElementById('tpl-preview').srcdoc = document.getElementById('tpl-editor').value;
+}
+
+function onTplEditorInput(){
+    clearTimeout(tplPreviewTimer);
+    tplPreviewTimer = setTimeout(updateTplPreview, 300);
+}
+
+async function saveTemplate(){
+    const id = document.getElementById('tpl-select').value;
+    const html = document.getElementById('tpl-editor').value;
+    showLoader(true);
+    try {
+        const staticHtml = await fetchTplStatic(id);
+        // 실습근무카드의 행 감지 마커 소실 시 저장 차단
+        if (id === 'practiceCard'){
+            const missing = [];
+            for (let i=1;i<=30;i++){
+                const marker = '{{단위기간시작일'+i+'}}';
+                if (staticHtml.includes(marker) && !html.includes(marker)) missing.push(marker);
+            }
+            if (missing.length){
+                showLoader(false);
+                alert('행 감지 마커가 삭제되어 저장할 수 없습니다. 다시 넣어주세요:\n'+missing.join(', '));
+                return;
+            }
+        }
+        // 플레이스홀더 개수 · <tr> 짝 검사 — 다르면 경고 후 진행 여부 확인
+        const cnt = (s,re)=>(s.match(re)||[]).length;
+        const warns = [];
+        const phNow = cnt(html,/\{\{/g), phOrig = cnt(staticHtml,/\{\{/g);
+        if (phNow !== phOrig) warns.push('{{플레이스홀더 개수가 원본과 다릅니다 (원본 '+phOrig+'개 → 현재 '+phNow+'개)');
+        const trOpen = cnt(html,/<tr/g), trClose = cnt(html,/<\/tr/g);
+        if (trOpen !== trClose) warns.push('<tr('+trOpen+'개)와 </tr('+trClose+'개) 개수가 맞지 않습니다');
+        if (warns.length && !confirm('경고:\n- '+warns.join('\n- ')+'\n\n그래도 저장하시겠습니까?')){ showLoader(false); return; }
+        await window.fsSetDoc(window.fsDoc(window.db,'templates',id),{
+            html: html, updatedAt: window.fsServerTimestamp(), updatedBy: 'superadmin'
+        });
+        setTplStatus(true);
+        showToast('저장 완료 — 원장님 화면에 즉시 적용됩니다','success');
+    } catch(e){ showToast('저장 실패: '+e.message,'error'); }
+    showLoader(false);
+}
+
+async function restoreTemplateDefault(){
+    const id = document.getElementById('tpl-select').value;
+    if (!confirm(TPL_DEFS[id].label+' 서식을 기본값으로 복원하시겠습니까?\n저장된 수정본이 삭제됩니다.')) return;
+    showLoader(true);
+    try {
+        await window.fsDeleteDoc(window.fsDoc(window.db,'templates',id));
+        document.getElementById('tpl-editor').value = await fetchTplStatic(id);
+        updateTplPreview();
+        setTplStatus(false);
+        showToast('기본값으로 복원되었습니다','success');
+    } catch(e){ showToast('복원 실패: '+e.message,'error'); }
+    showLoader(false);
+}
+
+// ── 문서 계산·표시 규칙 ────────────────────────────────────
+// admin.html의 DEFAULT_DOC_RULES와 동일하게 유지할 것
+const DEFAULT_DOC_RULES = {
+    lunchThresholdMin: 240,
+    maxDailyHours: 8,
+    statusLabels: { absent:'결석', late:'지각', early:'조퇴', makeup:'보강', present:'출석' },
+    statusColors: { absent:'#ef4444', late:'#f59e0b', early:'#8b5cf6' },
+    cardStatusColor: '#aaa',
+    rowHighlightBg: '#f0f0f0'
+};
+
+function toHex6(c){
+    // <input type="color">는 #rrggbb만 허용 — #abc 형태 확장
+    return /^#[0-9a-fA-F]{3}$/.test(c) ? '#'+c[1]+c[1]+c[2]+c[2]+c[3]+c[3] : c;
+}
+
+function mergeDocRules(d){
+    return {
+        lunchThresholdMin: d.lunchThresholdMin ?? DEFAULT_DOC_RULES.lunchThresholdMin,
+        maxDailyHours: d.maxDailyHours ?? DEFAULT_DOC_RULES.maxDailyHours,
+        statusLabels: { ...DEFAULT_DOC_RULES.statusLabels, ...(d.statusLabels||{}) },
+        statusColors: { ...DEFAULT_DOC_RULES.statusColors, ...(d.statusColors||{}) },
+        cardStatusColor: d.cardStatusColor || DEFAULT_DOC_RULES.cardStatusColor,
+        rowHighlightBg: d.rowHighlightBg || DEFAULT_DOC_RULES.rowHighlightBg
+    };
+}
+
+function setDocRulesStatus(isOverride){
+    const el = document.getElementById('docrules-status');
+    if (isOverride){ el.className='badge badge-yellow'; el.textContent='수정본 적용 중'; }
+    else           { el.className='badge badge-gray';   el.textContent='기본값 사용 중'; }
+}
+
+function fillDocRulesForm(r){
+    document.getElementById('dr-lunch-threshold').value = r.lunchThresholdMin;
+    document.getElementById('dr-max-hours').value = r.maxDailyHours;
+    document.getElementById('dr-label-absent').value = r.statusLabels.absent;
+    document.getElementById('dr-label-late').value = r.statusLabels.late;
+    document.getElementById('dr-label-early').value = r.statusLabels.early;
+    document.getElementById('dr-label-makeup').value = r.statusLabels.makeup;
+    document.getElementById('dr-label-present').value = r.statusLabels.present;
+    document.getElementById('dr-color-absent').value = toHex6(r.statusColors.absent);
+    document.getElementById('dr-color-late').value = toHex6(r.statusColors.late);
+    document.getElementById('dr-color-early').value = toHex6(r.statusColors.early);
+    document.getElementById('dr-color-card').value = toHex6(r.cardStatusColor);
+    document.getElementById('dr-color-rowbg').value = toHex6(r.rowHighlightBg);
+}
+
+async function loadDocRulesEditor(){
+    let d = null;
+    try {
+        const snap = await window.fsGetDoc(window.fsDoc(window.db,'settings','docRules'));
+        if (snap.exists()) d = snap.data();
+    } catch(e){ console.warn('docRules 로드 실패, 기본값 표시:', e); }
+    setDocRulesStatus(d !== null);
+    fillDocRulesForm(d ? mergeDocRules(d) : DEFAULT_DOC_RULES);
+}
+
+async function saveDocRules(){
+    const num = (id,def)=>{ const v=parseFloat(document.getElementById(id).value); return isNaN(v)?def:v; };
+    const txt = (id,def)=>document.getElementById(id).value.trim()||def;
+    const rules = {
+        lunchThresholdMin: num('dr-lunch-threshold', DEFAULT_DOC_RULES.lunchThresholdMin),
+        maxDailyHours: num('dr-max-hours', DEFAULT_DOC_RULES.maxDailyHours),
+        statusLabels: {
+            absent: txt('dr-label-absent', DEFAULT_DOC_RULES.statusLabels.absent),
+            late: txt('dr-label-late', DEFAULT_DOC_RULES.statusLabels.late),
+            early: txt('dr-label-early', DEFAULT_DOC_RULES.statusLabels.early),
+            makeup: txt('dr-label-makeup', DEFAULT_DOC_RULES.statusLabels.makeup),
+            present: txt('dr-label-present', DEFAULT_DOC_RULES.statusLabels.present)
+        },
+        statusColors: {
+            absent: document.getElementById('dr-color-absent').value,
+            late: document.getElementById('dr-color-late').value,
+            early: document.getElementById('dr-color-early').value
+        },
+        cardStatusColor: document.getElementById('dr-color-card').value,
+        rowHighlightBg: document.getElementById('dr-color-rowbg').value
+    };
+    showLoader(true);
+    try {
+        await window.fsSetDoc(window.fsDoc(window.db,'settings','docRules'),{
+            ...rules, updatedAt: window.fsServerTimestamp(), updatedBy: 'superadmin'
+        });
+        setDocRulesStatus(true);
+        showToast('규칙 저장 완료 — 원장님 화면의 문서 출력에 즉시 적용됩니다','success');
+    } catch(e){ showToast('저장 실패: '+e.message,'error'); }
+    showLoader(false);
+}
+
+async function restoreDocRulesDefault(){
+    if (!confirm('문서 계산·표시 규칙을 기본값으로 복원하시겠습니까?\n저장된 수정본이 삭제됩니다.')) return;
+    showLoader(true);
+    try {
+        await window.fsDeleteDoc(window.fsDoc(window.db,'settings','docRules'));
+        fillDocRulesForm(DEFAULT_DOC_RULES);
+        setDocRulesStatus(false);
+        showToast('기본값으로 복원되었습니다','success');
+    } catch(e){ showToast('복원 실패: '+e.message,'error'); }
+    showLoader(false);
+}
+
 // ── Utils ──────────────────────────────────────────────────
 function formatDate(ts){
     if (!ts) return '-';
@@ -1963,6 +2708,7 @@ async function loadScoringLogs() {
         <td style="text-align:center;">${r.effectiveDist != null ? r.effectiveDist + 'm' : '-'}</td>
         <td style="text-align:center;font-weight:700;">${r.scoreA != null ? r.scoreA : '-'}</td>
         <td style="text-align:center;font-weight:700;">${r.scoreB != null ? r.scoreB : '-'}</td>
+        <td style="text-align:center;font-weight:700;">${r.scoreC != null ? r.scoreC : '-'}</td>
         <td style="text-align:center;">${r.wifiConnected ? '✔' : '✗'}</td>
         <td>${cfLabel}</td>
         <td style="font-size:11px;">${errType}</td>
