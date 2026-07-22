@@ -197,6 +197,10 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
       <button class="nav-item" id="nav-academies" onclick="showPage('academies',this)">
         <span class="nav-icon">🏛️</span>학원 관리
       </button>
+      <button class="nav-item" id="nav-hospreqs" onclick="showPage('hospreqs',this)">
+        <span class="nav-icon">🏥</span>실습병원 신청
+        <span id="hospreq-pending-badge" style="margin-left:auto;background:#c82014;color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;display:none;"></span>
+      </button>
       <button class="nav-item" id="nav-data" onclick="showPage('data',this)">
         <span class="nav-icon">🔍</span>학원 데이터 조회
       </button>
@@ -237,6 +241,19 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
           <button class="btn btn-primary" onclick="openAddAcademyModal()">+ 학원 추가</button>
         </div>
         <div id="academies-list"></div>
+      </div>
+
+      <!-- 실습병원 신청 승인 -->
+      <div class="page" id="page-hospreqs">
+        <div class="section-header">
+          <div>
+            <div class="section-title">실습병원 신청 승인</div>
+            <div class="section-subtitle">원장님이 신청한 신규 실습병원을 검토하고 좌표를 등록하세요</div>
+          </div>
+          <button class="btn btn-outline btn-sm" onclick="loadHospitalRequests()">새로고침</button>
+        </div>
+        <div class="card-title" style="font-size:14px;margin-bottom:12px;">대기 중 <span id="hospreq-pending-count" style="color:var(--muted);">(0)</span></div>
+        <div id="hospreqs-list"></div>
       </div>
 
       <!-- 원장님 승인 -->
@@ -1001,6 +1018,7 @@ function showPage(id, btn){
     if (id==='payment')   loadPayments();
     if (id==='data')      initDataPage();
     if (id==='academies') loadAcademies();
+    if (id==='hospreqs') loadHospitalRequests();
     if (id==='logs')      initLogsPage();
     if (id==='authreqs')  loadAuthReqs();
     if (id==='scoring')   loadScoringLogs();
@@ -1655,6 +1673,174 @@ function removeHospital(name){
         } catch(e){ showToast('실패: '+e.message,'error'); }
         showLoader(false);
     });
+}
+
+// ── Hospital Requests (원장님 신청 실습병원 승인) ────────────
+let allHospitalRequests = [];
+
+async function loadHospitalRequests(){
+    showLoader(true);
+    try {
+        const q = window.fsQuery(window.fsCollection(window.db,'hospitalRequests'), window.fsWhere('status','==','pending'));
+        const snap = await window.fsGetDocs(q);
+        allHospitalRequests = [];
+        snap.forEach(d=>allHospitalRequests.push({id:d.id,...d.data()}));
+        allHospitalRequests.sort((a,b)=>(a.requestedAt?.seconds||0)-(b.requestedAt?.seconds||0));
+        renderHospitalRequests();
+    } catch(e){ showToast('불러오기 실패: '+e.message,'error'); }
+    showLoader(false);
+}
+
+function renderHospitalRequests(){
+    const badge = document.getElementById('hospreq-pending-badge');
+    if (allHospitalRequests.length > 0){ badge.textContent=allHospitalRequests.length; badge.style.display='inline'; }
+    else badge.style.display='none';
+    document.getElementById('hospreq-pending-count').textContent = '('+allHospitalRequests.length+')';
+
+    const el = document.getElementById('hospreqs-list');
+    if (!allHospitalRequests.length){
+        el.innerHTML = '<div class="empty-state"><div class="empty-icon">✅</div><div class="empty-text">대기 중인 신청이 없습니다</div></div>';
+        return;
+    }
+    el.innerHTML = allHospitalRequests.map(r=>`
+      <div class="card" style="margin-bottom:16px;">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:240px;">
+            <div style="font-size:12px;color:var(--muted);font-weight:600;">${escHtml(r.academyName||'-')}</div>
+            <div style="font-size:17px;font-weight:700;margin-top:2px;">${escHtml(r.hospitalName||'-')}</div>
+            <div style="font-size:13px;color:var(--muted);margin-top:4px;">${escHtml(r.address||'-')}</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:4px;">${formatDate(r.requestedAt)} 신청</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-shrink:0;">
+            <button class="btn btn-primary btn-sm" onclick="toggleHospReqApprove('${r.id}')">승인</button>
+            <button class="btn btn-danger btn-sm" onclick="rejectHospitalRequest('${r.id}')">거절</button>
+          </div>
+        </div>
+        <div id="hospreq-approve-${r.id}" style="display:none;border-top:1px solid var(--border);margin-top:14px;padding-top:14px;"></div>
+      </div>`).join('');
+}
+
+function toggleHospReqApprove(id){
+    const el = document.getElementById('hospreq-approve-'+id);
+    if (!el) return;
+    if (el.style.display !== 'none'){ el.style.display='none'; el.innerHTML=''; return; }
+    el.style.display='block';
+    el.innerHTML = `
+      <div class="form-row" style="align-items:flex-end;margin-bottom:10px;">
+        <div class="form-group">
+          <label class="form-label">병원명 또는 주소로 카카오맵 검색</label>
+          <input class="form-input" id="hreq-search-${id}" placeholder="예: 사하제일병원" onkeydown="if(event.key==='Enter')searchHospitalForRequest('${id}')">
+        </div>
+        <button class="btn btn-outline" onclick="searchHospitalForRequest('${id}')" style="white-space:nowrap;flex-shrink:0;">카카오맵 검색</button>
+      </div>
+      <div id="hreq-search-results-${id}" style="margin-bottom:10px;max-height:160px;overflow-y:auto;"></div>
+      <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:8px;letter-spacing:0.04em;">메인 좌표</div>
+      <div style="display:flex;gap:10px;margin-bottom:14px;">
+        <div class="form-group" style="flex:1;">
+          <label class="form-label">위도</label>
+          <input class="form-input" id="hreq-lat-${id}" type="number" step="any" placeholder="위도">
+        </div>
+        <div class="form-group" style="flex:1;">
+          <label class="form-label">경도</label>
+          <input class="form-input" id="hreq-lon-${id}" type="number" step="any" placeholder="경도">
+        </div>
+      </div>
+      <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:8px;letter-spacing:0.04em;">보조 좌표 (최대 2개 — 비워두면 미사용)</div>
+      ${[0,1].map(j=>`
+        <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">
+          <span style="font-size:12px;font-weight:700;color:var(--muted);min-width:24px;">P${j+1}</span>
+          <input type="number" step="any" id="hreq-wp-lat-${id}-${j}" placeholder="위도" style="flex:1;padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;outline:none;">
+          <input type="number" step="any" id="hreq-wp-lon-${id}-${j}" placeholder="경도" style="flex:1;padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;outline:none;">
+        </div>`).join('')}
+      <button class="btn btn-primary" style="width:100%;padding:12px;margin-top:6px;" onclick="finalizeApproveHospitalRequest('${id}')">최종 승인</button>
+    `;
+}
+
+async function searchHospitalForRequest(id){
+    const q = document.getElementById(`hreq-search-${id}`).value.trim();
+    if (!q){ showToast('검색어를 입력해주세요','error'); return; }
+    if (KAKAO_REST_KEY === 'YOUR_KAKAO_REST_API_KEY'){
+        showToast('KAKAO_REST_KEY를 설정해주세요 (코드 상단)','error'); return;
+    }
+    showLoader(true);
+    try {
+        let url = `https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(q)}&category_group_code=HP8&size=5`;
+        let res = await fetch(url,{headers:{'Authorization':'KakaoAK '+KAKAO_REST_KEY}});
+        let data = await res.json();
+        let places = data.documents||[];
+        if (!places.length){
+            url = `https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(q)}&size=5`;
+            res = await fetch(url,{headers:{'Authorization':'KakaoAK '+KAKAO_REST_KEY}});
+            data = await res.json();
+            places = data.documents||[];
+        }
+        const el = document.getElementById(`hreq-search-results-${id}`);
+        if (!places.length){
+            el.innerHTML = '<div style="font-size:13px;color:var(--muted);padding:10px;">검색 결과가 없습니다. 더 자세한 검색어를 입력해보세요.</div>';
+        } else {
+            el.innerHTML = places.map(p=>`
+              <div onclick="selectHospReqCoord('${id}', ${parseFloat(p.y)}, ${parseFloat(p.x)})"
+                style="padding:11px 14px;border-radius:9px;border:1.5px solid var(--border);margin-bottom:6px;cursor:pointer;background:#fff;">
+                <div style="font-size:14px;font-weight:700;">${p.place_name}</div>
+                <div style="font-size:12px;color:var(--muted);margin-top:2px;">${p.address_name}</div>
+              </div>`).join('');
+        }
+    } catch(e){ showToast('검색 실패: '+e.message,'error'); }
+    showLoader(false);
+}
+
+function selectHospReqCoord(id, lat, lon){
+    document.getElementById(`hreq-lat-${id}`).value = lat;
+    document.getElementById(`hreq-lon-${id}`).value = lon;
+    document.getElementById(`hreq-search-results-${id}`).innerHTML = '';
+}
+
+async function finalizeApproveHospitalRequest(id){
+    const req = allHospitalRequests.find(r=>r.id===id);
+    if (!req){ showToast('신청 정보를 찾을 수 없습니다','error'); return; }
+
+    // 병원명 8자 제한 — 실제 학원 데이터 반영 직전 재검증
+    const name = String(req.hospitalName||'').trim();
+    if (!name){ showToast('병원명이 비어있습니다','error'); return; }
+    if (name.length > 8){ showToast('병원명은 띄어쓰기 포함 8자 이내여야 합니다','error'); return; }
+    if (!req.academyId){ showToast('학원 정보가 없는 신청입니다','error'); return; }
+
+    const lat = parseFloat(document.getElementById(`hreq-lat-${id}`)?.value);
+    const lon = parseFloat(document.getElementById(`hreq-lon-${id}`)?.value);
+    if (isNaN(lat)||lat<-90||lat>90){ showToast('유효한 위도를 입력해주세요 (-90 ~ 90)','error'); return; }
+    if (isNaN(lon)||lon<-180||lon>180){ showToast('유효한 경도를 입력해주세요 (-180 ~ 180)','error'); return; }
+
+    const waypoints = [];
+    for (let j=0; j<2; j++){
+        const wlat = parseFloat(document.getElementById(`hreq-wp-lat-${id}-${j}`)?.value);
+        const wlon = parseFloat(document.getElementById(`hreq-wp-lon-${id}-${j}`)?.value);
+        if (!isNaN(wlat)&&!isNaN(wlon)&&wlat>=-90&&wlat<=90&&wlon>=-180&&wlon<=180) waypoints.push({lat:wlat,lon:wlon});
+    }
+
+    showLoader(true);
+    try {
+        const acRef = window.fsDoc(window.db,'academies',req.academyId);
+        const acSnap = await window.fsGetDoc(acRef);
+        const existing = acSnap.exists() ? (acSnap.data().hospitals||[]) : [];
+        if (existing.some(h=>h.name===name)){ showToast('이미 같은 이름의 병원이 있습니다','error'); showLoader(false); return; }
+        const hospitals = [...existing, {name, lat, lon, waypoints}];
+        await window.fsUpdateDoc(acRef,{hospitals});
+        await window.fsUpdateDoc(window.fsDoc(window.db,'hospitalRequests',id),{status:'approved'});
+        showToast(name+' 승인 완료','success');
+        await loadHospitalRequests();
+    } catch(e){ showToast('승인 실패: '+e.message,'error'); }
+    showLoader(false);
+}
+
+async function rejectHospitalRequest(id){
+    if (!confirm('이 신청을 거절하시겠습니까?')) return;
+    showLoader(true);
+    try {
+        await window.fsUpdateDoc(window.fsDoc(window.db,'hospitalRequests',id),{status:'rejected'});
+        showToast('거절 완료','info');
+        await loadHospitalRequests();
+    } catch(e){ showToast('실패: '+e.message,'error'); }
+    showLoader(false);
 }
 
 // ── Academy Data ───────────────────────────────────────────
