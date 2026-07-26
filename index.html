@@ -1468,6 +1468,17 @@ async function renameHospital(i){
     try {
         const updated = hospitals.map((h,j)=> j===i ? {...h, name:newName} : h);
         await window.fsUpdateDoc(window.fsDoc(window.db,'academies',currentHospitalAcademyId),{hospitals:updated});
+        // academies/{id}/hospitals 서브컬렉션 문서의 name도 동기화(있으면) — 없으면 조용히 건너뜀
+        // (마이그레이션 이전에 추가돼 서브컬렉션에 아예 없는 "고아 병원"은 별도 백필 대상)
+        try {
+            const subQ = window.fsQuery(window.fsCollection(window.db,'academies',currentHospitalAcademyId,'hospitals'),window.fsWhere('name','==',oldName));
+            const subSnap = await window.fsGetDocs(subQ);
+            if (!subSnap.empty){
+                const subBatch = window.fsWriteBatch(window.db);
+                subSnap.forEach(d=>subBatch.update(d.ref,{name:newName}));
+                await subBatch.commit();
+            }
+        } catch(e){}
         // 배정된 학생들의 hospital 필드도 새 이름으로 일괄 갱신
         const stuQ = window.fsQuery(window.fsCollection(window.db,'students'),window.fsWhere('academyId','==',currentHospitalAcademyId),window.fsWhere('hospital','==',oldName));
         const stuSnap = await window.fsGetDocs(stuQ);
@@ -1556,6 +1567,11 @@ async function addSelectedHospital(){
         const a = allAcademies.find(x=>x.id===currentHospitalAcademyId);
         const hospitals = [...(a?.hospitals||[]), selectedHospital];
         await window.fsUpdateDoc(window.fsDoc(window.db,'academies',currentHospitalAcademyId),{hospitals});
+        // academies/{id}/hospitals 서브컬렉션에도 동시 생성 — admin.html의 hospitalId 매핑(재배정 시
+        // 필요)이 이 서브컬렉션 기준이라, 여기 없으면 배정 자체가 막힌다(2026-07 병원추가 안먹힘 버그 수정).
+        await window.fsAddDoc(window.fsCollection(window.db,'academies',currentHospitalAcademyId,'hospitals'),{
+            name: selectedHospital.name, lat: selectedHospital.lat, lon: selectedHospital.lon
+        });
         showToast(selectedHospital.name+' 등록 완료','success');
         await loadAcademies();
         const updated = allAcademies.find(x=>x.id===currentHospitalAcademyId);
@@ -1579,6 +1595,11 @@ async function addManualHospital(){
         const a = allAcademies.find(x=>x.id===currentHospitalAcademyId);
         const hospitals = [...(a?.hospitals||[]), {name, lat, lon}];
         await window.fsUpdateDoc(window.fsDoc(window.db,'academies',currentHospitalAcademyId),{hospitals});
+        // academies/{id}/hospitals 서브컬렉션에도 동시 생성 — admin.html의 hospitalId 매핑(재배정 시
+        // 필요)이 이 서브컬렉션 기준이라, 여기 없으면 배정 자체가 막힌다(2026-07 병원추가 안먹힘 버그 수정).
+        await window.fsAddDoc(window.fsCollection(window.db,'academies',currentHospitalAcademyId,'hospitals'),{
+            name, lat, lon
+        });
         showToast(name+' 등록 완료','success');
         await loadAcademies();
         const updated = allAcademies.find(x=>x.id===currentHospitalAcademyId);
