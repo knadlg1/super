@@ -29,6 +29,7 @@
   window.fsReady = true;
   window.dispatchEvent(new Event('fsReady'));
 </script>
+<script src="https://pg-web.nicepay.co.kr/v3/common/js/nicepay-pgweb.js"></script>
 <style>
 :root{
   --green:#5651d5; --accent:#6c63ff; --house:#1E3932; --uplift:#2b5148;
@@ -210,21 +211,18 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
       <button class="nav-item" id="nav-payment" onclick="showPage('payment',this)">
         <span class="nav-icon">💳</span>결제 현황
       </button>
+      <button class="nav-item" id="nav-qradmins" onclick="showPage('qradmins',this);loadQrAdmins()">
+        <span class="nav-icon">📱</span>QR 관리자
+      </button>
       <button class="nav-item" id="nav-templates" onclick="showPage('templates',this)">
         <span class="nav-icon">📄</span>문서 틀 관리
       </button>
       <div class="sidebar-section-label">분석</div>
       <button class="nav-item" id="nav-logs" onclick="showPage('logs',this)">
-        <span class="nav-icon">📋</span>출결 로그
+        <span class="nav-icon">📋</span>통합 로그
       </button>
       <button class="nav-item" id="nav-authreqs" onclick="showPage('authreqs',this)">
         <span class="nav-icon">🔐</span>출결 인증 요청
-      </button>
-      <button class="nav-item" id="nav-presence" onclick="showPage('presence',this);loadPresenceLogs()">
-        <span class="nav-icon">📡</span>프레즌스 로그
-      </button>
-      <button class="nav-item" id="nav-scoring" onclick="showPage('scoring',this)">
-        <span class="nav-icon">📊</span>점수 로그
       </button>
       <div class="nav-version">v1.0 · 최고관리자</div>
     </div>
@@ -371,6 +369,26 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
         </div>
       </div>
 
+      <!-- QR 관리자 -->
+      <div class="page" id="page-qradmins">
+        <div class="section-header">
+          <div>
+            <div class="section-title">QR 관리자</div>
+            <div class="section-subtitle">1일 강좌 학원의 QR 출결 관리자 계정과 결제수단을 관리하세요</div>
+          </div>
+          <button class="btn btn-primary" onclick="openAddQrAdminModal()">+ QR 관리자 추가</button>
+        </div>
+        <div class="stat-grid" id="qradmin-stats"></div>
+        <div class="card" style="padding:0;overflow:hidden;">
+          <table class="tbl">
+            <thead><tr>
+              <th>학원명</th><th>담당자</th><th>이메일</th><th>결제상태</th><th>카드등록</th><th>마지막 결제</th><th>관리</th>
+            </tr></thead>
+            <tbody id="qradmin-list"></tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- 문서 틀 관리 -->
       <div class="page" id="page-templates">
         <div class="section-header">
@@ -435,8 +453,8 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
       <div class="page" id="page-logs">
         <div class="section-header">
           <div>
-            <div class="section-title">출결 로그</div>
-            <div class="section-subtitle">출퇴근 시도 기록 — 승인·거절 모두 포함</div>
+            <div class="section-title">통합 로그</div>
+            <div class="section-subtitle">출퇴근 시도(출결 로그 + 점수 로그 병합) · WiFi 30분 체크 · iOS 지오펜스 이탈 이벤트를 한 테이블에서 조회</div>
           </div>
           <button class="btn btn-outline btn-sm" onclick="loadLogs()">새로고침</button>
         </div>
@@ -457,7 +475,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
               </select>
             </div>
             <div class="form-group" style="min-width:150px;">
-              <label class="form-label">병원</label>
+              <label class="form-label">병원<span class="th-help" data-tip="출퇴근 시도 행만 필터링됩니다&#10;(WiFi체크/지오펜스 행은 병원ID가 기록되지 않음)">?</span></label>
               <select class="form-select" id="log-filter-hospital-select" disabled>
                 <option value="">전체 병원</option>
               </select>
@@ -466,6 +484,23 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
               <label class="form-label">학생</label>
               <select class="form-select" id="log-filter-student" disabled>
                 <option value="">전체 학생</option>
+              </select>
+            </div>
+            <div class="form-group" style="min-width:140px;">
+              <label class="form-label">행 종류</label>
+              <select class="form-select" id="log-filter-kind">
+                <option value="">전체</option>
+                <option value="attempt">출퇴근 시도</option>
+                <option value="presence">WiFi 체크(30분)</option>
+                <option value="geofence">지오펜스(iOS)</option>
+              </select>
+            </div>
+            <div class="form-group" style="min-width:120px;">
+              <label class="form-label">출퇴근 유형</label>
+              <select class="form-select" id="log-filter-atttype">
+                <option value="">전체</option>
+                <option value="출근">출근</option>
+                <option value="퇴근">퇴근</option>
               </select>
             </div>
             <div class="form-group" style="min-width:120px;">
@@ -477,12 +512,24 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
                 <option value="error">오류</option>
               </select>
             </div>
+            <div class="form-group" style="min-width:130px;">
+              <label class="form-label">단계<span class="th-help" data-tip="collecting: 핑거프린트 수집 중 (5회 미만)&#10;active: 핑거프린트 활성 (5회 이상)&#10;출퇴근 시도 행에만 적용">?</span></label>
+              <select class="form-select" id="log-filter-phase">
+                <option value="">전체</option>
+                <option value="collecting">collecting</option>
+                <option value="active">active</option>
+              </select>
+            </div>
+            <div class="form-group" style="min-width:140px;">
+              <label class="form-label">이름 검색</label>
+              <input class="form-input" type="text" id="log-filter-name" placeholder="이름 입력...">
+            </div>
             <div class="form-group" style="min-width:110px;">
               <label class="form-label">표시 개수</label>
               <select class="form-select" id="log-filter-limit">
                 <option value="300">300건</option>
-                <option value="500">500건</option>
-                <option value="1000" selected>1000건</option>
+                <option value="500" selected>500건</option>
+                <option value="1000">1000건</option>
                 <option value="3000">3000건</option>
               </select>
             </div>
@@ -491,24 +538,24 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
         </div>
         <div id="logs-count" style="font-size:13px;color:var(--muted);margin-bottom:10px;"></div>
         <div class="card" style="padding:0;overflow:auto;">
-          <table class="tbl" id="logs-table" style="font-size:12px;min-width:1100px;">
+          <table class="tbl" id="logs-table" style="font-size:12px;min-width:1600px;">
             <thead><tr>
-              <th>시각<span class="th-help" data-tip="출퇴근 시도 시각 (KST)">?</span></th>
+              <th>종류<span class="th-help" data-tip="출퇴근시도 — 출결 로그(서버)+점수 로그(클라이언트)를 같은 시도끼리 병합한 행&#10;WiFi체크 — 30분마다 저장된 WiFi 핑거프린트 일치율 점검 (Android/iOS 공통)&#10;지오펜스 — iOS에서만 추가로 동작하는 병원 반경 이탈/복귀 감지 (WiFi체크의 보조 장치)">?</span></th>
+              <th>시각<span class="th-help" data-tip="이벤트 시각 (KST)">?</span></th>
               <th>학생<span class="th-help" data-tip="학생 이름 또는 카카오 ID">?</span></th>
-              <th>병원ID<span class="th-help" data-tip="Firestore 병원 문서 ID&#10;(hospitalId 필터와 동일)">?</span></th>
-              <th>유형<span class="th-help" data-tip="출근 / 퇴근">?</span></th>
-              <th>결과<span class="th-help" data-tip="✅ 성공 — 정상 처리&#10;🔁 중복 — 이미 기록됨&#10;❌ 오류 — 거절됨">?</span></th>
-              <th>dist<span class="th-help" data-tip="학생 GPS ↔ 병원 좌표 직선 거리 (m)&#10;보정 전 원시 거리">?</span></th>
-              <th>eff<span class="th-help" data-tip="유효 거리 effectiveDist (m)&#10;= dist − min(acc, 40) × 0.5&#10;GPS 오차를 최대 20m 차감한 값&#10;A점수 산정 기준">?</span></th>
-              <th>acc<span class="th-help" data-tip="기기 GPS 정확도 반경 (m)&#10;낮을수록 정밀&#10;40m 초과분은 보정에 반영 안 됨">?</span></th>
-              <th>A점<span class="th-help" data-tip="GPS 유효거리 기반 점수 (1~5점)&#10;≤ 20m → 5점&#10;≤ 40m → 4점&#10;≤ 60m → 3점&#10;≤ 90m → 2점&#10;그 외  → 1점">?</span></th>
-              <th>B점<span class="th-help" data-tip="WiFi / BSSID 신뢰 점수 (0~5점)&#10;신뢰BSSID + 앵커 50m 이내 → 5점&#10;신뢰BSSID만 (앵커 초과)  → 2점&#10;WiFi 연결만 (미인증 BSSID) → 1점&#10;없음 → 0점&#10;&#10;A점 + B점 ≥ 5 이면 통과">?</span></th>
-              <th>WiFi<span class="th-help" data-tip="기기가 WiFi에 연결된 여부&#10;✔ 연결됨 / ✗ 미연결">?</span></th>
-              <th>BSSID<span class="th-help" data-tip="연결된 WiFi AP 주소 (마지막 8자리)&#10;신뢰 등록 여부 → 신뢰 열 참조">?</span></th>
-              <th>신뢰<span class="th-help" data-tip="⭐ 관리자가 신뢰 등록한 BSSID&#10;신뢰 BSSID는 B점 산정에 사용됨">?</span></th>
-              <th>앵커<span class="th-help" data-tip="신뢰 BSSID의 GPS 앵커와 현재 위치 간 거리 (m)&#10;50m 이하면 B점 5점&#10;50m 초과면 B점 2점">?</span></th>
+              <th>학원</th>
+              <th>병원ID<span class="th-help" data-tip="Firestore 병원 문서 ID&#10;출퇴근 시도 행에만 기록됨">?</span></th>
+              <th>유형<span class="th-help" data-tip="출근 / 퇴근 — 출퇴근 시도 행에만 적용">?</span></th>
+              <th>결과<span class="th-help" data-tip="✅ 성공 — 정상 처리&#10;🔁 중복 — 이미 기록됨&#10;❌ 오류 — 거절됨&#10;출퇴근 시도 행에만 적용">?</span></th>
+              <th>GPS 정확도<span class="th-help" data-tip="기기 GPS 정확도 반경(m) + 실내/실외 판정&#10;accuracy ≤ 25m → 실외, 그 외 → 실내&#10;(location.js getAttendanceMode 기준)&#10;WiFi체크처럼 GPS를 재지 않는 행은 '-'">?</span></th>
+              <th>거리<span class="th-help" data-tip="학생 GPS ↔ 병원 좌표 직선 거리 (m)&#10;GPS를 재지 않는 행은 '-'">?</span></th>
+              <th>WiFi연결<span class="th-help" data-tip="기기가 WiFi에 연결된 여부&#10;✔ 연결됨 / ✗ 미연결&#10;출퇴근 시도 행에만 적용">?</span></th>
+              <th>BSSID<span class="th-help" data-tip="연결된 WiFi AP 주소(마지막 8자리)&#10;⭐ = hospitals/…/bssids 문서의 trusted:true&#10;×N = 해당 BSSID 관측 횟수(count)&#10;&#10;신뢰(trusted) 전환 기준(recordBssid 기준)&#10;— 누적 10회 이상 관측 AND 서로 다른 날짜 5일 이상&#10;— (count≥10 && days≥5), 한번 신뢰로 전환되면 계속 유지됨">?</span></th>
+              <th>WiFi일치율<span class="th-help" data-tip="주변에서 스캔된 WiFi/BLE 기기 중 저장된 핑거프린트와 일치한 비율(%)&#10;출퇴근 시도 행 — scoringLogs matchPct&#10;WiFi체크 행 — presenceLogs wifiMatchPct&#10;지오펜스 행은 해당 없음 → '-'">?</span></th>
+              <th>WiFi체크/지오펜스<span class="th-help" data-tip="WiFi체크 행 — 병원내/이탈 판정&#10;지오펜스 행 — ENTER(복귀)/EXIT(이탈) 이벤트&#10;※ WiFi 30분 체크는 Android/iOS 공통이며, 지오펜스는 iOS에만 추가로 붙는 보조 감지 장치입니다">?</span></th>
               <th>오류유형<span class="th-help" data-tip="distance — 거리/위치 문제&#10;wifi    — WiFi 점수 부족&#10;auth    — 인증 실패&#10;server  — 서버 오류">?</span></th>
               <th>오류메시지<span class="th-help" data-tip="학생 화면에 실제로 표시된 오류 문구">?</span></th>
+              <th>상세<span class="th-help" data-tip="유효거리(GPS 오차 보정 거리) · A/B/C점(GPS·WiFi신뢰·핑거프린트 점수) · 앵커거리(신뢰BSSID GPS앵커와의 거리) · WiFi일치율/FP점수(점수 로그 값) · 단계(collecting/active)&#10;WiFi체크 행은 주변 AP 개수, 지오펜스 행은 플랫폼 표시">?</span></th>
             </tr></thead>
             <tbody id="logs-tbody"></tbody>
           </table>
@@ -526,122 +573,6 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
         </div>
         <div id="authreqs-count" style="font-size:13px;color:var(--muted);margin-bottom:10px;"></div>
         <div id="authreqs-list"></div>
-      </div>
-
-      <!-- 프레즌스 로그 -->
-      <div class="page" id="page-presence">
-        <div class="section-header">
-          <div>
-            <div class="section-title">프레즌스 로그</div>
-            <div class="section-subtitle">30분 WiFi 체크 기록 · iOS 지오펜스 이탈 이벤트</div>
-          </div>
-          <div style="display:flex;gap:8px;align-items:center;">
-            <select id="presence-filter-type" onchange="loadPresenceLogs()" style="padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;">
-              <option value="">전체</option>
-              <option value="presenceLogs">WiFi 체크</option>
-              <option value="geofenceEvents">지오펜스</option>
-              <option value="scoringLogs">점수 이력</option>
-            </select>
-            <input type="date" id="presence-filter-date" onchange="loadPresenceLogs()" style="padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;">
-            <button onclick="loadPresenceLogs()" style="padding:8px 16px;background:var(--accent);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;">새로고침</button>
-          </div>
-        </div>
-        <div id="presence-log-container" style="overflow-x:auto;">
-          <div id="presence-log-content" style="color:var(--muted);text-align:center;padding:40px;">조회 중...</div>
-        </div>
-      </div>
-
-      <!-- 점수 로그 -->
-      <div class="page" id="page-scoring">
-        <div class="section-header">
-          <div>
-            <div class="section-title">점수 로그</div>
-            <div class="section-subtitle">WiFi 핑거프린트 · GPS 점수 기록 (출퇴근 시도 시 클라이언트 집계)</div>
-          </div>
-          <button class="btn btn-outline btn-sm" onclick="loadScoringLogs()">새로고침</button>
-        </div>
-        <div class="card" style="margin-bottom:16px;">
-          <div class="form-row" style="flex-wrap:wrap;gap:12px;align-items:flex-end;">
-            <div class="form-group" style="min-width:130px;">
-              <label class="form-label">시작 날짜</label>
-              <input class="form-input" type="date" id="sc-date-start">
-            </div>
-            <div class="form-group" style="min-width:130px;">
-              <label class="form-label">종료 날짜</label>
-              <input class="form-input" type="date" id="sc-date-end">
-            </div>
-            <div class="form-group" style="min-width:140px;">
-              <label class="form-label">이름 검색</label>
-              <input class="form-input" type="text" id="sc-name" placeholder="이름 입력...">
-            </div>
-            <div class="form-group" style="min-width:120px;">
-              <label class="form-label">유형</label>
-              <select class="form-select" id="sc-type">
-                <option value="">전체</option>
-                <option value="in">출근</option>
-                <option value="out">퇴근</option>
-              </select>
-            </div>
-            <div class="form-group" style="min-width:130px;">
-              <label class="form-label">단계</label>
-              <select class="form-select" id="sc-phase">
-                <option value="">전체</option>
-                <option value="collecting">collecting</option>
-                <option value="active">active</option>
-              </select>
-            </div>
-            <div class="form-group" style="min-width:120px;">
-              <label class="form-label">CF 결과</label>
-              <select class="form-select" id="sc-cfstatus">
-                <option value="">전체</option>
-                <option value="success">성공</option>
-                <option value="duplicate">중복</option>
-                <option value="error">실패</option>
-              </select>
-            </div>
-            <div class="form-group" style="min-width:110px;">
-              <label class="form-label">표시 개수</label>
-              <select class="form-select" id="sc-limit">
-                <option value="200">200건</option>
-                <option value="500" selected>500건</option>
-                <option value="1000">1000건</option>
-              </select>
-            </div>
-            <button class="btn btn-primary" onclick="loadScoringLogs()" style="height:40px;align-self:flex-end;">조회</button>
-          </div>
-        </div>
-        <div id="sc-count" style="font-size:13px;color:var(--muted);margin-bottom:10px;"></div>
-        <div id="sc-summary" style="margin-bottom:12px;display:none;">
-          <div class="card" style="padding:16px;">
-            <div class="card-title" style="margin-bottom:12px;">학생별 시도 현황</div>
-            <div id="sc-summary-body" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
-          </div>
-        </div>
-        <div class="card" style="padding:0;overflow:auto;max-height:calc(100vh - 340px);">
-          <table class="tbl" id="sc-table" style="font-size:12px;min-width:1100px;">
-            <thead>
-              <tr>
-                <th style="position:sticky;top:0;background:#fff;z-index:1;">시각</th>
-                <th style="position:sticky;top:0;background:#fff;z-index:1;">이름</th>
-                <th style="position:sticky;top:0;background:#fff;z-index:1;">유형</th>
-                <th style="position:sticky;top:0;background:#fff;z-index:1;">단계<span class="th-help" data-tip="collecting: 핑거프린트 수집 중 (5회 미만)&#10;active: 핑거프린트 활성 (5회 이상)">?</span></th>
-                <th style="position:sticky;top:0;background:#fff;z-index:1;">WiFi 일치율<span class="th-help" data-tip="주변 WiFi 중 저장된 BSSID와 일치한 비율 (%)&#10;60% 이상이면 핑거프린트 점수 부여">?</span></th>
-                <th style="position:sticky;top:0;background:#fff;z-index:1;">핑거프린트점수<span class="th-help" data-tip="phase·matchPct·GPS 기반 최종 점수">?</span></th>
-                <th style="position:sticky;top:0;background:#fff;z-index:1;">GPS 정확도<span class="th-help" data-tip="기기 GPS 오차 반경 (m), 낮을수록 정밀">?</span></th>
-                <th style="position:sticky;top:0;background:#fff;z-index:1;">GPS거리<span class="th-help" data-tip="병원까지 GPS 직선 거리 (m)">?</span></th>
-                <th style="position:sticky;top:0;background:#fff;z-index:1;">유효거리<span class="th-help" data-tip="GPS 오차를 뺀 유효 거리 (m). 이 값으로 scoreA 결정">?</span></th>
-                <th style="position:sticky;top:0;background:#fff;z-index:1;">A점<span class="th-help" data-tip="GPS 유효거리 기반 점수 (≤20→5, ≤40→4, ≤60→3, ≤90→2, else→1)">?</span></th>
-                <th style="position:sticky;top:0;background:#fff;z-index:1;">B점<span class="th-help" data-tip="WiFi BSSID 신뢰도 점수 (신뢰BSSID+앵커→5, 신뢰BSSID→2, WiFi연결→1, else→0)">?</span></th>
-                <th style="position:sticky;top:0;background:#fff;z-index:1;">C점<span class="th-help" data-tip="WiFi 핑거프린트 일치율 점수 (active 단계만, matchPct/10 내림, 최대 10)">?</span></th>
-                <th style="position:sticky;top:0;background:#fff;z-index:1;">WiFi</th>
-                <th style="position:sticky;top:0;background:#fff;z-index:1;">CF 결과</th>
-                <th style="position:sticky;top:0;background:#fff;z-index:1;">오류유형</th>
-                <th style="position:sticky;top:0;background:#fff;z-index:1;">오류메시지</th>
-              </tr>
-            </thead>
-            <tbody id="sc-tbody"></tbody>
-          </table>
-        </div>
       </div>
 
     </div><!-- .main -->
@@ -854,6 +785,35 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
   </div>
 </div>
 
+<!-- QR 관리자 추가 모달 -->
+<div class="modal-backdrop" id="add-qradmin-modal">
+  <div class="modal" style="max-width:440px;">
+    <button class="modal-close" onclick="closeModal('add-qradmin-modal')">✕</button>
+    <div class="modal-title">QR 관리자 추가</div>
+    <div class="form-group" style="margin-bottom:14px;">
+      <label class="form-label">학원명</label>
+      <input class="form-input" id="new-qradmin-academy" placeholder="예: 원데이간호학원">
+    </div>
+    <div class="form-group" style="margin-bottom:14px;">
+      <label class="form-label">초대코드 <span style="color:var(--muted);font-weight:400;">(가입코드 — 대소문자 무관)</span></label>
+      <input class="form-input" id="new-qradmin-code" placeholder="예: SAHA" style="font-family:monospace;font-weight:700;font-size:16px;letter-spacing:0.05em;text-transform:uppercase;">
+    </div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label class="form-label">담당자 이름</label>
+      <input class="form-input" id="new-qradmin-name" placeholder="예: 홍길동">
+    </div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label class="form-label">이메일</label>
+      <input class="form-input" id="new-qradmin-email" type="email" placeholder="예: admin@example.com">
+    </div>
+    <div class="form-group" style="margin-bottom:20px;">
+      <label class="form-label">초기 비밀번호 <span style="color:var(--muted);font-weight:400;">(최소 6자)</span></label>
+      <input class="form-input" id="new-qradmin-password" type="password" placeholder="초기 로그인 비밀번호" onkeydown="if(event.key==='Enter')saveNewQrAdmin()">
+    </div>
+    <button class="btn btn-primary" onclick="saveNewQrAdmin()" style="width:100%;padding:14px;font-size:15px;">생성</button>
+  </div>
+</div>
+
 <script>
 // ── Kakao REST API 키 설정 ─────────────────────────────────
 // Kakao Developers(developers.kakao.com)에서 앱 생성 후 REST API 키 입력
@@ -866,6 +826,7 @@ let dataStudentsAll = [];
 let currentHospitalAcademyId = null;
 let selectedHospital = null;
 let hospSearchResults = [];
+let allQrAdmins = [];
 
 function todayKST(){
     const kst = new Date(Date.now() + 9*60*60*1000);
@@ -934,80 +895,6 @@ function showApp(){
     loadDirectors();
 }
 
-// ── 프레즌스 로그 ──────────────────────────────────────────
-async function loadPresenceLogs() {
-  const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  const el = document.getElementById('presence-log-content');
-  el.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted);">로딩 중...</div>';
-
-  const typeFilter = document.getElementById('presence-filter-type')?.value || '';
-  const dateFilter = document.getElementById('presence-filter-date')?.value || '';
-
-  const collections = typeFilter
-    ? [typeFilter]
-    : ['presenceLogs', 'geofenceEvents', 'scoringLogs'];
-
-  const allRows = [];
-  try {
-    for (const col of collections) {
-      let q = window.fsCollection(window.db, col);
-      if (dateFilter) q = window.fsQuery(q, window.fsWhere('date', '==', dateFilter));
-      q = window.fsQuery(q, window.fsOrderBy('timestamp', 'desc'), window.fsLimit(200));
-      const snap = await window.fsGetDocs(q);
-      snap.forEach(d => allRows.push({ _col: col, ...d.data() }));
-    }
-  } catch(e) {
-    el.innerHTML = '<div style="color:#ef4444;padding:20px;">데이터 로드 실패</div>';
-    return;
-  }
-
-  if (!allRows.length) {
-    el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);">데이터 없음</div>';
-    return;
-  }
-
-  allRows.sort((a,b) => b.timestamp > a.timestamp ? 1 : -1);
-
-  const colLabel = { presenceLogs: 'WiFi체크', geofenceEvents: '지오펜스', scoringLogs: '점수이력' };
-  const colColor = { presenceLogs: '#3b82f6', geofenceEvents: '#f59e0b', scoringLogs: '#10b981' };
-
-  const rows = allRows.map((r,i) => {
-    const bg = i%2===0?'':'background:#f8fafc;';
-    const badge = `<span style="background:${colColor[r._col]||'#999'};color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;">${esc(colLabel[r._col]||r._col)}</span>`;
-    const platform = r.platform ? `<span style="font-size:11px;color:var(--muted);">${esc(r.platform)}</span>` : '';
-    let detail = '';
-    if (r._col === 'presenceLogs') {
-      const inHosp = r.isInHospital ? '<span style="color:#10b981;font-weight:700;">✓ 병원내</span>' : '<span style="color:#ef4444;font-weight:700;">✗ 이탈</span>';
-      detail = `일치율: <b>${esc(r.wifiMatchPct)}%</b> | 주변AP: ${esc(r.currentBssidCount)}개 | ${inHosp}`;
-    } else if (r._col === 'geofenceEvents') {
-      const ev = r.event === 'EXIT'
-        ? '<span style="color:#ef4444;font-weight:700;">🚨 이탈</span>'
-        : '<span style="color:#10b981;font-weight:700;">✓ 복귀</span>';
-      detail = ev;
-    } else if (r._col === 'scoringLogs') {
-      detail = `${esc(r.type)} | 점수: <b>${esc(r.fingerprintScore)}</b> | 일치율: ${esc(r.matchPct)}% | GPS정확도: ${esc(r.gpsAccuracy)}m | 단계: ${esc(r.phase)} | CF: ${esc(r.cfStatus)}`;
-    }
-    return `<tr style="${bg}">
-      <td style="padding:8px 12px;">${badge}</td>
-      <td style="padding:8px 12px;">${esc(r.name||r.kakaoId||'-')}</td>
-      <td style="padding:8px 12px;white-space:nowrap;">${esc(r.date||'')} ${esc(r.time||'')}</td>
-      <td style="padding:8px 12px;">${platform}</td>
-      <td style="padding:8px 12px;font-size:13px;">${detail}</td>
-    </tr>`;
-  }).join('');
-
-  el.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px;">
-    <thead><tr style="background:#f1f5f9;font-weight:700;">
-      <th style="padding:10px 12px;text-align:left;">유형</th>
-      <th style="padding:10px 12px;text-align:left;">학생</th>
-      <th style="padding:10px 12px;text-align:left;">일시</th>
-      <th style="padding:10px 12px;text-align:left;">기기</th>
-      <th style="padding:10px 12px;text-align:left;">상세</th>
-    </tr></thead>
-    <tbody>${rows}</tbody>
-  </table>`;
-}
-
 // ── Navigation ─────────────────────────────────────────────
 function showPage(id, btn){
     document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
@@ -1021,7 +908,6 @@ function showPage(id, btn){
     if (id==='hospreqs') loadHospitalRequests();
     if (id==='logs')      initLogsPage();
     if (id==='authreqs')  loadAuthReqs();
-    if (id==='scoring')   loadScoringLogs();
     if (id==='templates') { loadTemplateEditor(); loadDocRulesEditor(); }
 }
 
@@ -2177,6 +2063,152 @@ async function setPaymentStatus(id, status){
     showLoader(false);
 }
 
+// ── QR 관리자 ────────────────────────────────────────────
+async function loadQrAdmins(){
+    showLoader(true);
+    try {
+        const res = await fetch(CF_BASE_URL+'/listQrAdmins',{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({passwordHash:sessionStorage.getItem('saPwHash')})});
+        const data = await res.json();
+        if (!data.success){ showToast('불러오기 실패: '+(data.message||''),'error'); showLoader(false); return; }
+        allQrAdmins = data.admins||[];
+        renderQrAdmins();
+    } catch(e){ showToast('불러오기 실패: '+e.message,'error'); }
+    showLoader(false);
+}
+
+function renderQrAdmins(){
+    const total   = allQrAdmins.length;
+    const active  = allQrAdmins.filter(a=>a.paymentStatus==='active').length;
+    const overdue = allQrAdmins.filter(a=>a.paymentStatus==='overdue').length;
+    const none    = allQrAdmins.filter(a=>!a.paymentStatus||a.paymentStatus==='none').length;
+
+    document.getElementById('qradmin-stats').innerHTML = `
+      <div class="stat-card"><div class="stat-num">${total}</div><div class="stat-lbl">총 관리자</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:var(--accent);">${active}</div><div class="stat-lbl">정상결제</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:#c82014;">${overdue}</div><div class="stat-lbl">연체</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:var(--muted);">${none}</div><div class="stat-lbl">미등록</div></div>`;
+
+    const payBadge = p => {
+        if (!p||p==='none') return '<span class="badge badge-gray">미등록</span>';
+        if (p==='active')   return '<span class="badge badge-green">정상</span>';
+        if (p==='overdue')  return '<span class="badge badge-red">연체</span>';
+        return '<span class="badge badge-gray">'+escHtml(p)+'</span>';
+    };
+
+    const rows = allQrAdmins.map(a=>{
+        const ps = a.paymentStatus||'none';
+        const cardInfo = a.cardInfo ? `${escHtml(a.cardInfo.brand||'')} ****${escHtml(a.cardInfo.last4||'')}` : '미등록';
+        const lastPay = a.lastPaymentAt ? formatDate(a.lastPaymentAt) : '-';
+        return `<tr>
+          <td style="font-weight:600;">${escHtml(a.academyName||'-')}</td>
+          <td>${escHtml(a.name||'-')}</td>
+          <td>${escHtml(a.email||'-')}</td>
+          <td>${payBadge(ps)}</td>
+          <td style="font-size:12px;">${cardInfo}</td>
+          <td style="color:var(--muted);font-size:12px;">${lastPay}</td>
+          <td style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="btn btn-outline btn-sm" onclick="registerQrAdminCard('${a.uid}')">카드 등록</button>
+            ${ps==='overdue'
+                ? `<button class="btn btn-primary btn-sm" onclick="setQrAdminPaymentStatus('${a.uid}','active')">정상화</button>`
+                : ps==='active'
+                  ? `<button class="btn btn-warn btn-sm" onclick="setQrAdminPaymentStatus('${a.uid}','overdue')">연체 처리</button>`
+                  : ''}
+            <button class="btn btn-outline btn-sm" onclick="testQrAdminMonthlyCharge('${a.uid}')">테스트 청구</button>
+          </td>
+        </tr>`;
+    }).join('');
+    document.getElementById('qradmin-list').innerHTML = rows || '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--muted);">등록된 QR 관리자가 없습니다</td></tr>';
+}
+
+function openAddQrAdminModal(){
+    document.getElementById('new-qradmin-academy').value='';
+    document.getElementById('new-qradmin-code').value='';
+    document.getElementById('new-qradmin-name').value='';
+    document.getElementById('new-qradmin-email').value='';
+    document.getElementById('new-qradmin-password').value='';
+    document.getElementById('add-qradmin-modal').classList.add('show');
+    setTimeout(()=>document.getElementById('new-qradmin-academy').focus(),100);
+}
+
+async function saveNewQrAdmin(){
+    const academyName = document.getElementById('new-qradmin-academy').value.trim();
+    const inviteCode  = document.getElementById('new-qradmin-code').value.trim().toUpperCase();
+    const adminName   = document.getElementById('new-qradmin-name').value.trim();
+    const email       = document.getElementById('new-qradmin-email').value.trim();
+    const password    = document.getElementById('new-qradmin-password').value;
+    if (!academyName){ showToast('학원명을 입력해주세요','error'); return; }
+    if (!inviteCode)  { showToast('초대코드를 입력해주세요','error'); return; }
+    if (!adminName)   { showToast('담당자 이름을 입력해주세요','error'); return; }
+    if (!email)       { showToast('이메일을 입력해주세요','error'); return; }
+    if (!password || password.length < 6){ showToast('비밀번호는 6자 이상 입력해주세요','error'); return; }
+    showLoader(true);
+    try {
+        const res = await fetch(CF_BASE_URL+'/createQrAdminAccount',{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({
+            passwordHash: sessionStorage.getItem('saPwHash'),
+            academyName, inviteCode, adminName, email, password
+        })});
+        const data = await res.json();
+        if (!data.success){ showToast('생성 실패: '+(data.message||''),'error'); showLoader(false); return; }
+        closeModal('add-qradmin-modal');
+        showToast(academyName+' QR 관리자 계정 생성 완료','success');
+        await loadQrAdmins();
+    } catch(e){ showToast('실패: '+e.message,'error'); }
+    showLoader(false);
+}
+
+async function setQrAdminPaymentStatus(uid, status){
+    const label = status==='active' ? '정상화' : '연체 처리';
+    if (!confirm(`결제 상태를 "${label}"로 변경하시겠습니까?`)) return;
+    showLoader(true);
+    try {
+        const res = await fetch(CF_BASE_URL+'/setQrAdminPaymentStatus',{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({passwordHash:sessionStorage.getItem('saPwHash'),uid,status})});
+        const data = await res.json();
+        if (!data.success){ showToast('실패: '+(data.message||''),'error'); showLoader(false); return; }
+        showToast(label+' 완료','success');
+        await loadQrAdmins();
+    } catch(e){ showToast('실패: '+e.message,'error'); }
+    showLoader(false);
+}
+
+async function registerQrAdminCard(uid){
+    showLoader(true);
+    try {
+        const returnUrl = window.location.href.split('?')[0];
+        const res = await fetch(CF_BASE_URL+'/prepareQrAdminBillingAuth',{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({customerKey:uid,returnUrl})});
+        const data = await res.json();
+        if (data.status!=='success'){ showToast('카드 등록 준비 실패: '+(data.message||''),'error'); showLoader(false); return; }
+        const f = document.createElement('form');
+        f.method='post'; f.action=CF_BASE_URL+'/issueQrAdminBillingKey'; f.style.display='none';
+        const addField=(name,value)=>{const i=document.createElement('input');i.type='hidden';i.name=name;i.value=value;f.appendChild(i);};
+        addField('GoodsName',data.goodsName);
+        addField('Amt',data.amt);
+        addField('MID',data.mid);
+        addField('EdiDate',data.ediDate);
+        addField('Moid',data.moid);
+        addField('PayMethod','CARD');
+        addField('BillAuthYN','Y');
+        addField('SignData',data.signData);
+        addField('CharSet','utf-8');
+        addField('ReturnURL',CF_BASE_URL+'/issueQrAdminBillingKey');
+        document.body.appendChild(f);
+        goPay(f);
+    } catch(e){ showToast('처리 실패: '+e.message,'error'); }
+    showLoader(false);
+}
+
+async function testQrAdminMonthlyCharge(uid){
+    if (!confirm('테스트 청구를 실행하시겠습니까?')) return;
+    showLoader(true);
+    try {
+        const res = await fetch(CF_BASE_URL+'/testQrAdminMonthlyCharge',{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({passwordHash:sessionStorage.getItem('saPwHash'),qrAdminId:uid})});
+        const data = await res.json();
+        if (!data.success){ showToast('테스트 청구 실패: '+(data.message||''),'error'); showLoader(false); return; }
+        showToast('테스트 청구 완료','success');
+        await loadQrAdmins();
+    } catch(e){ showToast('실패: '+e.message,'error'); }
+    showLoader(false);
+}
+
 // ── 원장 추가 (기존 학원에) ────────────────────────────────
 function openAddDirectorModal(academyId){
     const academy = allAcademies.find(a=>a.id===academyId);
@@ -2465,90 +2497,323 @@ function onLogAcademyChange(){
         .catch(()=>{});
 }
 
+// 출근/퇴근 표기를 attendanceLogs('출근'/'퇴근')·scoringLogs('in'/'out') 양쪽 다 지원하도록 정규화
+function normalizeAttType(t){
+    if (t === '출근' || t === 'in') return '출근';
+    if (t === '퇴근' || t === 'out') return '퇴근';
+    return t || null;
+}
+
+// 각 컬렉션의 시각 필드를 비교 가능한 epoch(ms)로 변환
+function logRowEpoch(r, col){
+    if (col === 'attendanceLogs') {
+        if (r.ts && typeof r.ts.toDate === 'function') return r.ts.toDate().getTime();
+        if (r.ts && typeof r.ts.seconds === 'number') return r.ts.seconds * 1000;
+    }
+    if (r.timestamp) { const t = new Date(r.timestamp).getTime(); if (!isNaN(t)) return t; }
+    if (r.date) { const t = new Date(r.date + 'T' + (r.timeStr || r.time || '00:00') + ':00+09:00').getTime(); if (!isNaN(t)) return t; }
+    return 0;
+}
+
+// GPS 정확도(m) + 실내/실외 판정 — location.js getAttendanceMode(accuracy)와 동일 기준
+// (accuracy<=0 → 실내(mock/비정상), accuracy<=25 → 실외, 그 외 → 실내)
+function gpsAccuracyCell(accuracy){
+    if (accuracy == null || !Number.isFinite(accuracy)) return '-';
+    const outdoor = accuracy > 0 && accuracy <= 25;
+    const label = accuracy <= 0 ? '실내' : (outdoor ? '실외' : '실내');
+    const color = outdoor ? '#16a34a' : '#92400e';
+    return `${Math.round(accuracy)}m <span style="color:${color};font-weight:700;">(${label})</span>`;
+}
+
+function distCell(v){ return (v != null && Number.isFinite(v)) ? Math.round(v) + 'm' : '-'; }
+
+// 출퇴근 시도(attendanceLogs) + 점수 로그(scoringLogs)를 같은 시도끼리 병합
+// 매칭 키: kakaoId + 출근/퇴근 유형 + 시각 근접(30초 이내, 가장 가까운 것)
+function mergeAttemptRows(attLogs, scLogs){
+    const usedSc = new Set();
+    const attemptRows = attLogs.map(a => {
+        const aEpoch = logRowEpoch(a, 'attendanceLogs');
+        const aType  = normalizeAttType(a.type);
+        let bestIdx = -1, bestDiff = Infinity;
+        scLogs.forEach((s, i) => {
+            if (usedSc.has(i)) return;
+            if (String(s.kakaoId||'') !== String(a.kakaoId||'')) return;
+            if (normalizeAttType(s.type) !== aType) return;
+            const diff = Math.abs(logRowEpoch(s, 'scoringLogs') - aEpoch);
+            if (diff < bestDiff && diff <= 30000) { bestDiff = diff; bestIdx = i; }
+        });
+        const s = bestIdx >= 0 ? scLogs[bestIdx] : null;
+        if (bestIdx >= 0) usedSc.add(bestIdx);
+        return buildAttemptRow(a, s, aEpoch);
+    });
+    scLogs.forEach((s, i) => {
+        if (usedSc.has(i)) return;
+        // attendanceLogs와 매칭되지 않은 점수 로그 단독 항목 — 손실 없이 별도 행으로 표시
+        attemptRows.push(buildAttemptRow(null, s, logRowEpoch(s, 'scoringLogs')));
+    });
+    return attemptRows;
+}
+
+function buildAttemptRow(a, s, epoch){
+    const r = a || {}, sr = s || {};
+    return {
+        _kind: 'attempt', _epoch: epoch,
+        name: r.name || sr.name || null,
+        kakaoId: r.kakaoId || sr.kakaoId || null,
+        academyId: r.acId || sr.academyId || null,
+        hospitalId: r.hospitalId || null,
+        date: r.date || sr.date || null,
+        time: r.timeStr || sr.time || null,
+        type: normalizeAttType(r.type || sr.type),
+        result: r.result || sr.cfStatus || null,
+        dist: r.dist ?? sr.dist ?? null,
+        effectiveDist: r.effectiveDist ?? sr.effectiveDist ?? null,
+        accuracy: r.accuracy ?? sr.gpsAccuracy ?? null,
+        scoreA: r.scoreA ?? sr.scoreA ?? null,
+        scoreB: r.scoreB ?? sr.scoreB ?? null,
+        scoreC: r.scoreC ?? sr.scoreC ?? null,
+        wifiConnected: (r.wifiConnected != null) ? r.wifiConnected : sr.wifiConnected,
+        bssid: r.bssid || null,
+        bssidTrusted: r.bssidTrusted === true,
+        anchorDist: r.anchorDist ?? null,
+        errorType: r.errorType || sr.cfErrorType || null,
+        errorMsg: r.errorMsg || sr.cfErrorMsg || null,
+        matchPct: sr.matchPct ?? null,
+        fingerprintScore: sr.fingerprintScore ?? null,
+        fingerprintPhase: sr.fingerprintPhase || null,
+    };
+}
+
+function buildPresenceRow(p){
+    return {
+        _kind: 'presence', _epoch: logRowEpoch(p, 'presenceLogs'),
+        name: p.name || null, kakaoId: p.kakaoId || null, academyId: p.academyId || null,
+        date: p.date || null, time: p.time || null, platform: p.platform || null,
+        wifiMatchPct: p.wifiMatchPct, currentBssidCount: p.currentBssidCount, isInHospital: p.isInHospital,
+    };
+}
+
+function buildGeofenceRow(g){
+    return {
+        _kind: 'geofence', _epoch: logRowEpoch(g, 'geofenceEvents'),
+        name: g.name || null, kakaoId: g.kakaoId || null, academyId: g.academyId || null,
+        date: g.date || null, time: g.time || null, platform: g.platform || 'ios',
+        event: g.event || null,
+        // presenceMonitor.js GEOFENCE_TASK(지오펜스 오탐 수정 작업 반영본) 기준 필드명.
+        // g.accuracy는 존재하지 않는 필드였고 실제로는 gpsAccuracy — 폴백으로 구 필드명도 방어적으로 읽는다.
+        accuracy: g.gpsAccuracy ?? g.accuracy ?? null,
+        dist: g.distance ?? g.confirmedDistance ?? null,
+        verified: (typeof g.verified === 'boolean') ? g.verified : (typeof g.confirmed === 'boolean' ? g.confirmed : null),
+        verifyReason: g.verifyReason || null,
+    };
+}
+
+function academyNameOf(id){
+    if (!id) return '-';
+    const a = allAcademies.find(x => x.id === id);
+    return a ? a.name : id; // acId가 레거시 academyName 폴백값이면 id 자체가 이미 학원명
+}
+
+const KIND_LABEL = { attempt: '출퇴근시도', presence: 'WiFi체크', geofence: '지오펜스' };
+const KIND_COLOR = { attempt: '#5651d5', presence: '#3b82f6', geofence: '#f59e0b' };
+
+// WiFi일치율 컬럼 — attempt 행은 scoringLogs matchPct, presence 행은 presenceLogs wifiMatchPct, geofence 행은 해당 없음
+function wifiMatchPctCell(r){
+    const pct = r._kind === 'attempt' ? r.matchPct : (r._kind === 'presence' ? r.wifiMatchPct : null);
+    return pct != null ? pct + '%' : '-';
+}
+
+// WiFi체크(30분)/지오펜스 컬럼 — WiFi 30분 체크는 Android/iOS 공통, 지오펜스는 iOS 전용 보조 감지
+function presenceEventCell(r){
+    if (r._kind === 'presence') {
+        const verdict = r.isInHospital
+            ? '<span style="color:#16a34a;font-weight:700;">✓ 병원내</span>'
+            : '<span style="color:#ef4444;font-weight:700;">✗ 이탈</span>';
+        return verdict;
+    }
+    if (r._kind === 'geofence') {
+        const reasonTip = r.verifyReason ? ` title="사유: ${escHtml(r.verifyReason)}"` : '';
+        if (r.event === 'EXIT') {
+            if (r.verified === true)  return `<span class="badge badge-red"${reasonTip}>확정 이탈</span>`;
+            if (r.verified === false) return `<span class="badge badge-gray"${reasonTip}>미확정(오탐 의심)</span>`;
+            return '<span class="badge badge-yellow">🚨 이탈(EXIT)</span>';
+        }
+        return '<span class="badge badge-green">복귀(ENTER)</span>';
+    }
+    return '-';
+}
+
+// 출퇴근 시도의 부가 정보(유효거리/A·B·C점/앵커거리/WiFi일치율/FP점수/단계)를 한 칸에 정리
+function attemptDetailCell(r){
+    if (r._kind === 'presence') return r.currentBssidCount != null ? `주변AP ${r.currentBssidCount}개` : '-';
+    if (r._kind === 'geofence')  return r.platform ? `플랫폼: ${escHtml(r.platform)}` : '-';
+    const parts = [];
+    if (r.effectiveDist != null) parts.push(`유효거리 ${r.effectiveDist}m`);
+    if (r.scoreA != null || r.scoreB != null || r.scoreC != null) parts.push(`A${r.scoreA ?? '-'}/B${r.scoreB ?? '-'}/C${r.scoreC ?? '-'}`);
+    if (r.anchorDist != null) parts.push(`앵커 ${r.anchorDist}m`);
+    if (r.fingerprintScore != null) parts.push(`FP점수 ${r.fingerprintScore}`);
+    if (r.fingerprintPhase) parts.push(`단계:${escHtml(r.fingerprintPhase)}`);
+    return parts.length ? parts.join(' · ') : '-';
+}
+
 async function loadLogs(){
     showLoader(true);
     try {
         const dateStart  = document.getElementById('log-filter-date-start').value;
         const dateEnd    = document.getElementById('log-filter-date-end').value;
+        const academyVal = document.getElementById('log-filter-academy').value;
         const hospitalVal= document.getElementById('log-filter-hospital-select').value;
         const studentVal = document.getElementById('log-filter-student').value;
-        const resultVal  = document.getElementById('log-filter-result').value;
+        const kindVal    = document.getElementById('log-filter-kind').value;      // '' | attempt | presence | geofence
+        const attTypeVal = document.getElementById('log-filter-atttype').value;   // '' | 출근 | 퇴근
+        const resultVal  = document.getElementById('log-filter-result').value;    // '' | success | duplicate | error
+        const phaseVal   = document.getElementById('log-filter-phase').value;     // '' | collecting | active
+        const nameVal    = (document.getElementById('log-filter-name').value || '').trim();
+        const limitVal   = parseInt(document.getElementById('log-filter-limit').value) || 500;
 
         if (dateStart && dateEnd && dateStart > dateEnd){
             showToast('시작 날짜가 종료 날짜보다 늦습니다','error');
             showLoader(false); return;
         }
 
-        const col = window.fsCollection(window.db, 'attendanceLogs');
-        const constraints = [];
+        const wantAttempt  = !kindVal || kindVal === 'attempt';
+        const wantPresence = !kindVal || kindVal === 'presence';
+        const wantGeofence = !kindVal || kindVal === 'geofence';
 
-        if (dateStart) {
-            const start = new Date(dateStart + 'T00:00:00+09:00');
-            const end   = new Date((dateEnd || dateStart) + 'T23:59:59+09:00');
-            constraints.push(window.fsWhere('ts', '>=', start));
-            constraints.push(window.fsWhere('ts', '<=', end));
+        const fetchTasks = [];
+
+        if (wantAttempt) {
+            // attendanceLogs: 기존과 동일하게 ts(Timestamp) 범위 + hospitalId/result 서버 필터 유지 (기존에 이미 동작하던 인덱스 재사용)
+            const attConstraints = [];
+            if (dateStart) {
+                attConstraints.push(window.fsWhere('ts', '>=', new Date(dateStart + 'T00:00:00+09:00')));
+                attConstraints.push(window.fsWhere('ts', '<=', new Date((dateEnd || dateStart) + 'T23:59:59+09:00')));
+            }
+            if (hospitalVal) attConstraints.push(window.fsWhere('hospitalId', '==', hospitalVal));
+            if (resultVal)   attConstraints.push(window.fsWhere('result', '==', resultVal));
+            attConstraints.push(window.fsOrderBy('ts', 'desc'));
+            attConstraints.push(window.fsLimit(limitVal));
+            fetchTasks.push(window.fsGetDocs(window.fsQuery(window.fsCollection(window.db, 'attendanceLogs'), ...attConstraints))
+                .then(snap => { const arr = []; snap.forEach(d => arr.push(d.data())); return { col: 'attendanceLogs', rows: arr }; }));
+
+            // scoringLogs: date(string) 범위만 서버 필터 — orderBy는 반드시 range 필터와 같은 필드(date)를 사용해야 하므로
+            // 나머지(cfStatus/phase 등)는 병합 후 클라이언트에서 필터링한다.
+            const scConstraints = [];
+            if (dateStart) {
+                scConstraints.push(window.fsWhere('date', '>=', dateStart));
+                scConstraints.push(window.fsWhere('date', '<=', dateEnd || dateStart));
+            }
+            scConstraints.push(window.fsOrderBy('date', 'desc'));
+            scConstraints.push(window.fsLimit(limitVal));
+            fetchTasks.push(window.fsGetDocs(window.fsQuery(window.fsCollection(window.db, 'scoringLogs'), ...scConstraints))
+                .then(snap => { const arr = []; snap.forEach(d => arr.push(d.data())); return { col: 'scoringLogs', rows: arr }; }));
         }
-        if (hospitalVal) constraints.push(window.fsWhere('hospitalId', '==', hospitalVal));
-        if (resultVal)   constraints.push(window.fsWhere('result', '==', resultVal));
+        if (wantPresence) {
+            const c = [];
+            if (dateStart) { c.push(window.fsWhere('date', '>=', dateStart)); c.push(window.fsWhere('date', '<=', dateEnd || dateStart)); }
+            c.push(window.fsOrderBy('date', 'desc')); c.push(window.fsLimit(limitVal));
+            fetchTasks.push(window.fsGetDocs(window.fsQuery(window.fsCollection(window.db, 'presenceLogs'), ...c))
+                .then(snap => { const arr = []; snap.forEach(d => arr.push(d.data())); return { col: 'presenceLogs', rows: arr }; }));
+        }
+        if (wantGeofence) {
+            const c = [];
+            if (dateStart) { c.push(window.fsWhere('date', '>=', dateStart)); c.push(window.fsWhere('date', '<=', dateEnd || dateStart)); }
+            c.push(window.fsOrderBy('date', 'desc')); c.push(window.fsLimit(limitVal));
+            fetchTasks.push(window.fsGetDocs(window.fsQuery(window.fsCollection(window.db, 'geofenceEvents'), ...c))
+                .then(snap => { const arr = []; snap.forEach(d => arr.push(d.data())); return { col: 'geofenceEvents', rows: arr }; }));
+        }
 
-        const limitVal = parseInt(document.getElementById('log-filter-limit').value) || 1000;
-        constraints.push(window.fsOrderBy('ts', 'desc'));
-        constraints.push(window.fsLimit(limitVal));
+        const fetched = await Promise.all(fetchTasks);
+        const byCol = {};
+        fetched.forEach(f => { byCol[f.col] = f.rows; });
 
-        const snap = await window.fsGetDocs(window.fsQuery(col, ...constraints));
+        let allRows = [];
+        if (wantAttempt) allRows = allRows.concat(mergeAttemptRows(byCol.attendanceLogs || [], byCol.scoringLogs || []));
+        if (wantPresence) allRows = allRows.concat((byCol.presenceLogs || []).map(buildPresenceRow));
+        if (wantGeofence) allRows = allRows.concat((byCol.geofenceEvents || []).map(buildGeofenceRow));
 
-        let rows = [];
-        snap.forEach(d => rows.push(d.data()));
-        if (studentVal) rows = rows.filter(r => String(r.kakaoId||'') === studentVal);
+        if (academyVal) allRows = allRows.filter(r => String(r.academyId || '') === academyVal);
+        if (studentVal) allRows = allRows.filter(r => String(r.kakaoId || '') === studentVal);
+        if (nameVal)    allRows = allRows.filter(r => (r.name || '').includes(nameVal));
+        if (attTypeVal) allRows = allRows.filter(r => r._kind === 'attempt' && r.type === attTypeVal);
+        if (resultVal)  allRows = allRows.filter(r => r._kind === 'attempt' && r.result === resultVal);
+        if (phaseVal)   allRows = allRows.filter(r => r._kind === 'attempt' && r.fingerprintPhase === phaseVal);
 
-        document.getElementById('logs-count').textContent = `총 ${rows.length}건 조회 (최대 ${limitVal}건)`;
+        allRows.sort((a, b) => b._epoch - a._epoch);
+
+        document.getElementById('logs-count').textContent = `총 ${allRows.length}건 조회 (컬렉션별 최대 ${limitVal}건)`;
 
         const tbody = document.getElementById('logs-tbody');
-        if (rows.length === 0) {
+        if (allRows.length === 0) {
             tbody.innerHTML = '<tr><td colspan="16" style="text-align:center;color:var(--muted);padding:24px;">로그 없음</td></tr>';
             showLoader(false); return;
         }
 
-        tbody.innerHTML = rows.map(r => {
-            const result = r.result || '';
+        // 화면에 표시될 출퇴근 시도 행들의 BSSID를 모아 배치로 한 번에 조회 (행마다 개별 조회하지 않음)
+        const bssidNeeds = new Map();
+        allRows.forEach(r => {
+            if (r._kind === 'attempt' && r.bssid && r.hospitalId) {
+                const key = `${r.academyId || ''}|${r.hospitalId}|${r.bssid}`;
+                if (!bssidNeeds.has(key)) bssidNeeds.set(key, { acId: r.academyId, hospitalId: r.hospitalId, bssid: r.bssid });
+            }
+        });
+        const bssidMap = {};
+        await Promise.all(Array.from(bssidNeeds.entries()).map(async ([key, need]) => {
+            try {
+                const ref = need.acId
+                    ? window.fsDoc(window.db, 'hospitals', String(need.acId), 'hospitals', String(need.hospitalId), 'bssids', need.bssid)
+                    : window.fsDoc(window.db, 'hospitals', String(need.hospitalId), 'bssids', need.bssid);
+                const snap = await window.fsGetDoc(ref);
+                if (snap.exists()) bssidMap[key] = snap.data();
+            } catch (e) { /* 조회 실패 시 행 자체 bssidTrusted로 폴백 */ }
+        }));
+
+        tbody.innerHTML = allRows.map(r => {
+            const kindBadge = `<span style="background:${KIND_COLOR[r._kind]};color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;white-space:nowrap;">${KIND_LABEL[r._kind]}</span>`;
+
             let rowStyle = '';
-            if (result === 'success') rowStyle = 'background:#f0fdf4;';
-            else if (result === 'duplicate') rowStyle = 'background:#fefce8;';
-            else if (result === 'error') rowStyle = 'background:#fff1f2;';
+            if (r._kind === 'attempt') {
+                if (r.result === 'success') rowStyle = 'background:#f0fdf4;';
+                else if (r.result === 'duplicate') rowStyle = 'background:#fefce8;';
+                else if (r.result === 'error') rowStyle = 'background:#fff1f2;';
+            }
 
-            const ts = r.ts ? (r.ts.toDate ? r.ts.toDate() : new Date(r.ts.seconds*1000)) : null;
-            const tsStr = ts ? (
-                ts.toLocaleString('ko-KR', {timeZone:'Asia/Seoul',
-                    month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'})
-            ) : '-';
+            const timeStr = `${escHtml(r.date || '')} ${escHtml(r.time || '')}`.trim();
 
-            const bssidShort = r.bssid ? r.bssid.slice(-8) : '-';
-            const errorMsg = r.errorMsg ? escHtml(r.errorMsg.replace(/\n/g,' ')) : '-';
-            const resultLabel = result === 'success' ? '✅ 성공'
-                              : result === 'duplicate' ? '🔁 중복'
-                              : result === 'error' ? '❌ 오류' : result || '-';
+            let bssidCell = '-';
+            if (r._kind === 'attempt' && r.bssid) {
+                const key = `${r.academyId || ''}|${r.hospitalId || ''}|${r.bssid}`;
+                const meta = bssidMap[key];
+                const trusted = meta ? meta.trusted === true : r.bssidTrusted;
+                const count = meta && meta.count != null ? meta.count : null;
+                bssidCell = `<span style="font-family:monospace;">${escHtml(r.bssid.slice(-8))}</span>`
+                    + (trusted ? ' ⭐' : '')
+                    + (count != null ? ` <span style="color:var(--muted);font-size:11px;">×${count}</span>` : '');
+            }
+
+            const resultLabel = r.result === 'success' ? '✅ 성공'
+                              : r.result === 'duplicate' ? '🔁 중복'
+                              : r.result === 'error' ? '❌ 오류' : '-';
+
+            const errorMsg = r.errorMsg ? escHtml(String(r.errorMsg).replace(/\n/g, ' ')) : '-';
 
             return `<tr style="${rowStyle}">
-              <td style="white-space:nowrap;">${tsStr}</td>
-              <td>${escHtml(r.name||r.kakaoId||'-')}</td>
-              <td style="max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(r.hospitalId||'')}">
-                ${escHtml((r.hospitalId||'-').slice(0,14))}
-              </td>
-              <td>${escHtml(r.type||'-')}</td>
-              <td style="white-space:nowrap;">${resultLabel}</td>
-              <td>${r.dist != null ? Math.round(r.dist)+'m' : '-'}</td>
-              <td>${r.effectiveDist != null ? r.effectiveDist+'m' : '-'}</td>
-              <td>${r.accuracy != null ? r.accuracy+'m' : '-'}</td>
-              <td style="text-align:center;font-weight:700;">${r.scoreA != null ? r.scoreA : '-'}</td>
-              <td style="text-align:center;font-weight:700;">${r.scoreB != null ? r.scoreB : '-'}</td>
-              <td style="text-align:center;">${r.wifiConnected ? '✔' : '✗'}</td>
-              <td style="font-family:monospace;">${escHtml(bssidShort)}</td>
-              <td style="text-align:center;">${r.bssidTrusted ? '⭐' : '-'}</td>
-              <td>${r.anchorDist != null ? r.anchorDist+'m' : '-'}</td>
-              <td>${escHtml(r.errorType||'-')}</td>
-              <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${errorMsg}">
-                ${errorMsg}
-              </td>
+              <td>${kindBadge}</td>
+              <td style="white-space:nowrap;">${timeStr}</td>
+              <td>${escHtml(r.name || r.kakaoId || '-')}</td>
+              <td>${escHtml(academyNameOf(r.academyId))}</td>
+              <td style="max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(r.hospitalId || '')}">${escHtml(r.hospitalId ? r.hospitalId.slice(0,14) : '-')}</td>
+              <td>${r._kind === 'attempt' ? escHtml(r.type || '-') : '-'}</td>
+              <td style="white-space:nowrap;">${r._kind === 'attempt' ? resultLabel : '-'}</td>
+              <td style="white-space:nowrap;">${gpsAccuracyCell(r.accuracy)}</td>
+              <td>${distCell(r.dist)}</td>
+              <td style="text-align:center;">${r._kind === 'attempt' ? (r.wifiConnected ? '✔' : '✗') : '-'}</td>
+              <td>${bssidCell}</td>
+              <td style="text-align:center;">${wifiMatchPctCell(r)}</td>
+              <td style="white-space:nowrap;">${presenceEventCell(r)}</td>
+              <td>${r._kind === 'attempt' ? escHtml(r.errorType || '-') : '-'}</td>
+              <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${errorMsg}">${errorMsg}</td>
+              <td style="font-size:11px;color:var(--muted);">${attemptDetailCell(r)}</td>
             </tr>`;
         }).join('');
     } catch(e) {
@@ -3079,120 +3344,20 @@ function formatDate(ts){
     return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
 
-init();
-
-async function loadScoringLogs() {
-  showLoader(true);
-  try {
-    const startVal  = document.getElementById('sc-date-start').value;
-    const endVal    = document.getElementById('sc-date-end').value;
-    const nameVal   = (document.getElementById('sc-name').value || '').trim();
-    const typeVal   = document.getElementById('sc-type').value;
-    const phaseVal  = document.getElementById('sc-phase').value;
-    const cfVal     = document.getElementById('sc-cfstatus').value;
-    const limitVal  = parseInt(document.getElementById('sc-limit').value) || 500;
-
-    const col = window.fsCollection(window.db, 'scoringLogs');
-    const constraints = [];
-
-    if (startVal) constraints.push(window.fsWhere('date', '>=', startVal));
-    if (endVal)   constraints.push(window.fsWhere('date', '<=', endVal));
-    if (typeVal)  constraints.push(window.fsWhere('type', '==', typeVal));
-    if (phaseVal) constraints.push(window.fsWhere('fingerprintPhase', '==', phaseVal));
-    if (cfVal)    constraints.push(window.fsWhere('cfStatus', '==', cfVal));
-
-    constraints.push(window.fsOrderBy('timestamp', 'desc'));
-    constraints.push(window.fsLimit(limitVal));
-
-    const snap = await window.fsGetDocs(window.fsQuery(col, ...constraints));
-    let rows = [];
-    snap.forEach(d => rows.push(d.data()));
-
-    // 이름 필터 (클라이언트 사이드)
-    if (nameVal) {
-      rows = rows.filter(r => (r.name || '').includes(nameVal));
-    }
-
-    document.getElementById('sc-count').textContent = `총 ${rows.length}건`;
-
-    // 학생별 요약
-    const summaryMap = {};
-    rows.forEach(r => {
-      const key = r.name || String(r.kakaoId || '?');
-      if (!summaryMap[key]) summaryMap[key] = { total: 0, success: 0, dup: 0, error: 0 };
-      summaryMap[key].total++;
-      if (r.cfStatus === 'success')   summaryMap[key].success++;
-      else if (r.cfStatus === 'duplicate') summaryMap[key].dup++;
-      else if (r.cfStatus === 'error')    summaryMap[key].error++;
-    });
-
-    const summaryDiv = document.getElementById('sc-summary');
-    const summaryBody = document.getElementById('sc-summary-body');
-    if (Object.keys(summaryMap).length > 0) {
-      summaryDiv.style.display = '';
-      summaryBody.innerHTML = Object.entries(summaryMap)
-        .sort((a,b) => b[1].total - a[1].total)
-        .map(([name, s]) => `
-          <div style="background:var(--ceramic);border-radius:8px;padding:8px 12px;font-size:12px;min-width:140px;">
-            <div style="font-weight:700;margin-bottom:4px;">${escHtml(name)}</div>
-            <div style="color:var(--muted);">총 ${s.total}회 | <span style="color:#16a34a;">✔${s.success}</span> <span style="color:#ca8a04;">↩${s.dup}</span> <span style="color:#c82014;">✗${s.error}</span></div>
-          </div>
-        `).join('');
-    } else {
-      summaryDiv.style.display = 'none';
-    }
-
-    const tbody = document.getElementById('sc-tbody');
-    if (rows.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="15" style="text-align:center;color:var(--muted);padding:24px;">로그 없음</td></tr>';
-      showLoader(false); return;
-    }
-
-    tbody.innerHTML = rows.map(r => {
-      const cfStatus = r.cfStatus || '';
-      const cfLabel  = cfStatus === 'success'   ? '<span class="badge badge-green">성공</span>'
-                     : cfStatus === 'duplicate' ? '<span class="badge badge-yellow">중복</span>'
-                     : cfStatus === 'error'     ? '<span class="badge badge-red">실패</span>'
-                     : escHtml(cfStatus || '-');
-      const matchPct   = r.matchPct != null ? r.matchPct + '%' : '-';
-      const score      = r.fingerprintScore != null ? r.fingerprintScore : '-';
-      const gpsAcc     = r.gpsAccuracy != null ? r.gpsAccuracy + 'm' : '-';
-      const typeLabel  = r.type === 'in' ? '출근' : r.type === 'out' ? '퇴근' : escHtml(r.type || '-');
-      const phaseLabel = r.fingerprintPhase === 'active'
-                       ? '<span class="badge badge-blue">active</span>'
-                       : r.fingerprintPhase === 'collecting'
-                       ? '<span class="badge badge-gray">collecting</span>'
-                       : escHtml(r.fingerprintPhase || '-');
-      const timeStr  = r.time || (r.timestamp ? r.timestamp.slice(11,16) : '-');
-      const dateStr  = r.date || (r.timestamp ? r.timestamp.slice(0,10) : '-');
-      const errType  = r.cfErrorType ? escHtml(r.cfErrorType) : '-';
-      const errMsg   = r.cfErrorMsg  ? `<span style="color:#c82014;font-size:11px;">${escHtml(r.cfErrorMsg)}</span>` : '-';
-      const rowStyle = cfStatus === 'error' ? ' style="background:#fff5f5;"' : '';
-      return `<tr${rowStyle}>
-        <td style="white-space:nowrap;">${escHtml(dateStr)} ${escHtml(timeStr)}</td>
-        <td style="font-weight:600;">${escHtml(r.name || String(r.kakaoId || '-'))}</td>
-        <td>${typeLabel}</td>
-        <td>${phaseLabel}</td>
-        <td style="text-align:center;font-weight:700;">${matchPct}</td>
-        <td style="text-align:center;font-weight:700;">${score}</td>
-        <td style="text-align:center;">${gpsAcc}</td>
-        <td style="text-align:center;">${r.dist != null ? r.dist + 'm' : '-'}</td>
-        <td style="text-align:center;">${r.effectiveDist != null ? r.effectiveDist + 'm' : '-'}</td>
-        <td style="text-align:center;font-weight:700;">${r.scoreA != null ? r.scoreA : '-'}</td>
-        <td style="text-align:center;font-weight:700;">${r.scoreB != null ? r.scoreB : '-'}</td>
-        <td style="text-align:center;font-weight:700;">${r.scoreC != null ? r.scoreC : '-'}</td>
-        <td style="text-align:center;">${r.wifiConnected ? '✔' : '✗'}</td>
-        <td>${cfLabel}</td>
-        <td style="font-size:11px;">${errType}</td>
-        <td style="max-width:200px;">${errMsg}</td>
-      </tr>`;
-    }).join('');
-  } catch(e) {
-    showToast('점수 로그 불러오기 실패: ' + e.message, 'error');
-  } finally {
-    showLoader(false);
-  }
+// ── QR 관리자 카드등록 결과 리다이렉트 핸들링 ────────────────
+// 로그인 상태(sessionStorage.saPwHash)가 확인된 경우에만 loadQrAdmins()를 호출한다.
+// 로그인 안 된 상태로 이 URL이 열리면 빈 해시로 실패 요청을 보내는 문제를 방지.
+const qrBillingParams = new URLSearchParams(window.location.search);
+if (qrBillingParams.get('billing')==='success'){
+    showToast('카드 등록 완료','success');
+    if (sessionStorage.getItem('saPwHash')) loadQrAdmins();
+    history.replaceState(null,'',window.location.pathname);
+} else if (qrBillingParams.get('billing')==='fail'){
+    showToast('카드 등록에 실패했습니다','error');
+    history.replaceState(null,'',window.location.pathname);
 }
+
+init();
 
 // ── Column Help Tooltip (fixed position — not clipped by overflow) ──
 (function(){
