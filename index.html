@@ -963,8 +963,15 @@ function renderDirectors(){
     const viewModeBadge = vm => {
         if (!vm || vm === 'director') return '<span class="badge badge-blue">원장화면</span>';
         if (vm === 'student') return '<span class="badge badge-yellow">학생화면</span>';
+        if (vm === 'qr') return '<span class="badge badge-green">QR화면</span>';
         return '<span class="badge badge-gray">'+vm+'</span>';
     };
+    const nextViewMode = current => {
+        if (!current || current === 'director') return 'student';
+        if (current === 'student') return 'qr';
+        return 'director';
+    };
+    const viewModeLabel = vm => vm === 'student' ? '학생화면' : vm === 'qr' ? 'QR화면' : '원장화면';
     const kakaoCell = d => d.kakaoId
         ? `<div style="font-size:11px;color:var(--muted);margin-bottom:3px;word-break:break-all;">${escHtml(d.kakaoId)}</div>
            <span class="badge badge-green">연결됨</span>
@@ -982,7 +989,7 @@ function renderDirectors(){
         <td>
           ${viewModeBadge(d.viewMode)}
           <button class="btn btn-sm" style="margin-top:4px;background:${(!d.viewMode||d.viewMode==='director')?'#e0e7ff':'#fef9c3'};color:${(!d.viewMode||d.viewMode==='director')?'#5651d5':'#92400e'};border:1.5px solid ${(!d.viewMode||d.viewMode==='director')?'#c7d2fe':'#fde68a'};" onclick="toggleViewMode('${d.id}','${d.viewMode||'director'}')">
-            ${(!d.viewMode||d.viewMode==='director') ? '→ 학생화면으로' : '→ 원장화면으로'}
+            → ${viewModeLabel(nextViewMode(d.viewMode))}으로
           </button>
         </td>
         <td style="display:flex;flex-direction:column;gap:4px;align-items:flex-start;">
@@ -1132,8 +1139,8 @@ async function autoMergeKakaoIds() {
 }
 
 async function toggleViewMode(id, current){
-    const next = (!current || current === 'director') ? 'student' : 'director';
-    const label = next === 'student' ? '학생화면' : '원장화면';
+    const next = nextViewMode(current);
+    const label = viewModeLabel(next);
     if (!confirm(`이 원장님의 화면 모드를 [${label}]으로 변경하시겠습니까?`)) return;
     showLoader(true);
     try {
