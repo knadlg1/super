@@ -966,12 +966,6 @@ function renderDirectors(){
         if (vm === 'qr') return '<span class="badge badge-green">QR화면</span>';
         return '<span class="badge badge-gray">'+vm+'</span>';
     };
-    const nextViewMode = current => {
-        if (!current || current === 'director') return 'student';
-        if (current === 'student') return 'qr';
-        return 'director';
-    };
-    const viewModeLabel = vm => vm === 'student' ? '학생화면' : vm === 'qr' ? 'QR화면' : '원장화면';
     const kakaoCell = d => d.kakaoId
         ? `<div style="font-size:11px;color:var(--muted);margin-bottom:3px;word-break:break-all;">${escHtml(d.kakaoId)}</div>
            <span class="badge badge-green">연결됨</span>
@@ -1138,6 +1132,14 @@ async function autoMergeKakaoIds() {
     }
 }
 
+function nextViewMode(current){
+    if (!current || current === 'director') return 'student';
+    if (current === 'student') return 'qr';
+    return 'director';
+}
+function viewModeLabel(vm){
+    return vm === 'student' ? '학생화면' : vm === 'qr' ? 'QR화면' : '원장화면';
+}
 async function toggleViewMode(id, current){
     const next = nextViewMode(current);
     const label = viewModeLabel(next);
