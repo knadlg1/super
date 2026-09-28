@@ -217,6 +217,10 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
       <button class="nav-item" id="nav-templates" onclick="showPage('templates',this)">
         <span class="nav-icon">📄</span>문서 틀 관리
       </button>
+      <div class="sidebar-section-label">연수교육</div>
+      <button class="nav-item" id="nav-cesched" onclick="showPage('cesched',this);initCeSchedPage()">
+        <span class="nav-icon">🗓️</span>시간표 업로드
+      </button>
       <div class="sidebar-section-label">분석</div>
       <button class="nav-item" id="nav-logs" onclick="showPage('logs',this)">
         <span class="nav-icon">📋</span>통합 로그
@@ -573,6 +577,44 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
         </div>
         <div id="authreqs-count" style="font-size:13px;color:var(--muted);margin-bottom:10px;"></div>
         <div id="authreqs-list"></div>
+      </div>
+
+      <!-- 연수교육 시간표 업로드 — 이 탭만 별도 Firebase 프로젝트(yeonsu-qr-auth)를 쓴다 -->
+      <div class="page" id="page-cesched">
+        <div class="section-header">
+          <div>
+            <div class="section-title">연수교육 시간표 업로드</div>
+            <div class="section-subtitle">KMA 엑셀(ExcelDown) 한 파일에 여러 학회·여러 날짜가 들어 있습니다. 올리면 학회·날짜별로 나눠 저장되고, 같은 학회·같은 날짜는 덮어씁니다.</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <input type="file" id="ce-file" accept=".xlsx,.xls" style="display:none;" onchange="onCeFilePicked(event)">
+          <button class="btn btn-primary" onclick="document.getElementById('ce-file').click()">엑셀 파일 선택</button>
+          <span id="ce-file-name" style="margin-left:12px;font-size:13px;color:var(--muted);"></span>
+          <div id="ce-parse-summary" style="margin-top:16px;"></div>
+          <div id="ce-preview" style="margin-top:16px;"></div>
+          <div id="ce-upload-actions" style="margin-top:16px;display:none;">
+            <button class="btn btn-primary" id="ce-btn-save" onclick="saveCeSchedules()">저장 (같은 학회·날짜는 덮어쓰기)</button>
+            <span id="ce-save-status" style="margin-left:12px;font-size:13px;color:var(--muted);"></span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="section-header" style="margin-bottom:12px;">
+            <div class="section-title" style="font-size:15px;">업로드 기록</div>
+            <button class="btn btn-outline btn-sm" onclick="loadCeUploads()">새로고침</button>
+          </div>
+          <div id="ce-uploads-list"></div>
+        </div>
+
+        <div class="card">
+          <div class="section-header" style="margin-bottom:12px;">
+            <div class="section-title" style="font-size:15px;">저장된 시간표</div>
+            <input class="form-input" id="ce-sched-filter" placeholder="학회명 또는 날짜로 검색" oninput="renderCeSchedList()" style="max-width:260px;">
+          </div>
+          <div id="ce-sched-list"></div>
+        </div>
       </div>
 
     </div><!-- .main -->
@@ -3405,6 +3447,328 @@ init();
     box.style.top  = top  + 'px';
   }
 })();
+
+/* ══════════════════════════════════════════════════════════════════════
+   연수교육 시간표 업로드 — 이 탭만 별도 Firebase 프로젝트(yeonsu-qr-auth)를 쓴다.
+   super의 나머지 화면은 Here 프로젝트(my-attendance-8122d)를 그대로 쓰므로,
+   기존 db/auth는 건드리지 않고 두 번째 앱 인스턴스를 따로 띄운다.
+   ══════════════════════════════════════════════════════════════════════ */
+let ceDb = null, ceFs = null;
+
+async function ceInit() {
+  if (ceDb) return ceDb;
+  const [{ initializeApp }, fs, { getAuth, signInAnonymously }] = await Promise.all([
+    import('https://www.gstatic.com/firebasejs/12.13.0/firebase-app.js'),
+    import('https://www.gstatic.com/firebasejs/12.13.0/firebase-firestore.js'),
+    import('https://www.gstatic.com/firebasejs/12.13.0/firebase-auth.js'),
+  ]);
+  // 두 번째 앱이라 이름을 붙여야 기존 기본 앱과 충돌하지 않는다.
+  const app = initializeApp({
+    apiKey: 'AIzaSyA68rFB5yLol3v9acbwRIFPtDdX2hf2FQw',
+    authDomain: 'yeonsu-qr-auth.firebaseapp.com',
+    projectId: 'yeonsu-qr-auth',
+    storageBucket: 'yeonsu-qr-auth.firebasestorage.app',
+    messagingSenderId: '1001009945495',
+    appId: '1:1001009945495:web:9f99c789e6d13404a442d2',
+  }, 'ce');
+  ceDb = fs.getFirestore(app);
+  ceFs = fs;
+  try { await signInAnonymously(getAuth(app)); } catch (e) { console.warn('CE 익명 로그인 실패', e); }
+  return ceDb;
+}
+
+/* ── KMA 엑셀 파서 ──
+   한 파일에 교육이 블록으로 쌓여 있다. 블록은 '신청일자' 행에서 시작하고,
+   머리말(교육일자/주최기관 등) 다음에 '구분'으로 시작하는 표가 온다.
+   실제 파일 350건이 모두 같은 헤더라 열 위치로 읽는다. */
+function parseKmaWorkbook(rows) {
+  const cell = (r, c) => String((rows[r] || [])[c] ?? '').trim();
+  const starts = [];
+  rows.forEach((r, i) => { if (String(r[0] ?? '').trim() === '신청일자') starts.push(i); });
+
+  const blocks = [];
+  starts.forEach((s, idx) => {
+    const end = idx + 1 < starts.length ? starts[idx + 1] : rows.length;
+    const head = {};
+    let hdrRow = -1;
+    for (let i = s; i < end; i++) {
+      const k = cell(i, 0);
+      if (k === '구분') { hdrRow = i; break; }
+      // 머리말은 한 줄에 'A열=항목, B열=값'과 'E열=항목, F열=값' 두 벌이 온다.
+      if (k) head[k] = cell(i, 1);
+      const k2 = cell(i, 4);
+      if (k2) head[k2] = cell(i, 5);
+    }
+    if (hdrRow < 0) return;
+
+    const courses = [];
+    for (let i = hdrRow + 1; i < end; i++) {
+      const kind = cell(i, 0);
+      // 다음 블록의 제목줄('2026년도 연수교육')이 딸려 들어오므로 거기서 끊는다.
+      if (/^\d{4}년도\s/.test(kind)) break;
+      const time = cell(i, 3);
+      const title = cell(i, 4) || cell(i, 5);
+      if (!kind && !time && !title) continue;
+      const raw = cell(i, 6);
+      const m = raw.match(/^(.*?)\s*\((.*)\)\s*$/);   // '김승만(선내과)' 분리
+      courses.push({
+        kind: kind || '교육시간',
+        room: cell(i, 2),
+        time,
+        title,
+        instructor: (m ? m[1] : raw).trim(),
+        affiliation: m ? m[2].trim() : '',
+        required: cell(i, 7) === 'Y' || cell(i, 7) === '필수',
+      });
+    }
+    if (!courses.length) return;
+
+    blocks.push({
+      date: head['교육일자'] || '',
+      orgName: head['주최기관'] || '',
+      topic: head['교육주제'] || '',
+      place: head['교육장소'] || '',
+      code: head['코드'] || '',
+      hours: head['교육시간'] || '',
+      courses,
+    });
+  });
+  return blocks;
+}
+
+let ceParsed = null, ceFileName = '';
+
+window.onCeFilePicked = async function (ev) {
+  const file = ev.target.files && ev.target.files[0];
+  if (!file) return;
+  ceFileName = file.name;
+  document.getElementById('ce-file-name').textContent = file.name;
+  document.getElementById('ce-parse-summary').innerHTML = '<span style="color:var(--muted);font-size:13px;">읽는 중...</span>';
+  document.getElementById('ce-preview').innerHTML = '';
+  document.getElementById('ce-upload-actions').style.display = 'none';
+  try {
+    if (!window.XLSX) await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
+    ceParsed = parseKmaWorkbook(rows);
+    renderCeParseSummary();
+  } catch (e) {
+    document.getElementById('ce-parse-summary').innerHTML =
+      `<span style="color:#b91c1c;font-size:13px;">읽기 실패: ${escHtml(e.message)}</span>`;
+  }
+};
+
+function loadScriptOnce(src) {
+  return new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = src; s.onload = res; s.onerror = () => rej(new Error('라이브러리 로드 실패'));
+    document.head.appendChild(s);
+  });
+}
+
+function renderCeParseSummary() {
+  const el = document.getElementById('ce-parse-summary');
+  if (!ceParsed || !ceParsed.length) {
+    el.innerHTML = '<span style="color:#b91c1c;font-size:13px;">교육 정보를 찾지 못했습니다. KMA ExcelDown 파일이 맞는지 확인해주세요.</span>';
+    return;
+  }
+  const dates = [...new Set(ceParsed.map(b => b.date))].sort();
+  const orgs = new Set(ceParsed.map(b => b.orgName));
+  const courses = ceParsed.reduce((s, b) => s + b.courses.length, 0);
+  const noDate = ceParsed.filter(b => !b.date || !b.orgName).length;
+
+  el.innerHTML = `
+    <div style="display:flex;gap:22px;flex-wrap:wrap;font-size:13px;">
+      <div><b style="font-size:20px;">${ceParsed.length}</b> 건의 교육</div>
+      <div><b style="font-size:20px;">${dates.length}</b> 개 날짜 <span style="color:var(--muted);">(${dates[0]} ~ ${dates[dates.length-1]})</span></div>
+      <div><b style="font-size:20px;">${orgs.size}</b> 개 학회</div>
+      <div><b style="font-size:20px;">${courses}</b> 개 수업 줄</div>
+    </div>
+    ${noDate ? `<div style="margin-top:8px;color:#b45309;font-size:13px;">날짜 또는 학회명이 없는 ${noDate}건은 저장하지 않습니다.</div>` : ''}
+    <div style="margin-top:10px;color:var(--muted);font-size:12px;">아래 미리보기로 제대로 읽혔는지 확인한 뒤 저장하세요.</div>`;
+
+  // 미리보기 — 앞 5건만, 각 3줄씩
+  document.getElementById('ce-preview').innerHTML = `
+    <table class="tbl">
+      <thead><tr><th>날짜</th><th>학회</th><th>주제</th><th>수업</th><th>맨 앞 3줄</th></tr></thead>
+      <tbody>${ceParsed.slice(0, 5).map(b => `
+        <tr>
+          <td>${escHtml(b.date)}</td>
+          <td>${escHtml(b.orgName)}</td>
+          <td style="max-width:220px;">${escHtml(b.topic.slice(0, 40))}</td>
+          <td>${b.courses.length}줄</td>
+          <td style="font-size:12px;color:var(--muted);">${b.courses.slice(0, 3).map(c =>
+            escHtml(`${c.room ? c.room + ' ' : ''}${c.time} ${c.title.slice(0, 22)}`)).join('<br>')}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+    ${ceParsed.length > 5 ? `<div style="margin-top:8px;color:var(--muted);font-size:12px;">외 ${ceParsed.length - 5}건</div>` : ''}`;
+
+  document.getElementById('ce-upload-actions').style.display = 'block';
+}
+
+window.saveCeSchedules = async function () {
+  if (!ceParsed || !ceParsed.length) return;
+  const btn = document.getElementById('ce-btn-save');
+  const stat = document.getElementById('ce-save-status');
+  btn.disabled = true;
+  try {
+    await ceInit();
+    const { doc, setDoc, writeBatch, serverTimestamp, collection } = ceFs;
+    const valid = ceParsed.filter(b => b.date && b.orgName);
+
+    // 한 학회가 같은 날 교육을 2건 이상 여는 경우가 있다(KMA 코드가 서로 다른 별개 행사).
+    // 문서 id가 학회_날짜라 그냥 쓰면 뒤엣것이 앞엣것을 지운다 — 그래서 events로 묶는다.
+    const groups = new Map();
+    valid.forEach(b => {
+      const key = `${b.orgName}_${b.date}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(b);
+    });
+    const entries = [...groups.entries()];
+
+    let saved = 0;
+    for (let i = 0; i < entries.length; i += 300) {
+      const batch = writeBatch(ceDb);
+      entries.slice(i, i + 300).forEach(([key, list]) => {
+        const first = list[0];
+        batch.set(doc(ceDb, 'schedule', key), {
+          orgId: first.orgName, orgName: first.orgName, date: first.date,
+          events: list.map(b => ({
+            topic: b.topic, place: b.place, code: b.code, hours: b.hours, courses: b.courses,
+          })),
+          // 기존 화면(학생/관리자)이 courses를 읽으므로 전부 합친 것도 같이 둔다.
+          courses: list.flatMap(b => b.courses),
+          topic: list.map(b => b.topic).filter(Boolean).join(' / '),
+          place: first.place, hours: first.hours,
+          source: 'excel', sourceFile: ceFileName,
+          updatedAt: serverTimestamp(),
+        });
+      });
+      await batch.commit();
+      saved += Math.min(300, entries.length - i);
+      stat.textContent = `저장 중... ${saved}/${entries.length}`;
+    }
+
+    // 업로드 기록
+    const dates = [...new Set(valid.map(b => b.date))].sort();
+    await setDoc(doc(collection(ceDb, 'scheduleUploads')), {
+      fileName: ceFileName,
+      blocks: valid.length,
+      courses: valid.reduce((s, b) => s + b.courses.length, 0),
+      orgs: [...new Set(valid.map(b => b.orgName))].length,
+      dateFrom: dates[0] || '', dateTo: dates[dates.length - 1] || '',
+      uploadedAt: serverTimestamp(),
+    });
+
+    stat.textContent = `완료 — 교육 ${valid.length}건을 ${entries.length}개 학회·날짜로 저장(같은 학회·날짜는 덮어쓰기)`;
+    await loadCeUploads();
+    await loadCeSchedules();
+  } catch (e) {
+    stat.innerHTML = `<span style="color:#b91c1c;">저장 실패: ${escHtml(e.message)}</span>`;
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+window.initCeSchedPage = async function () {
+  await ceInit();
+  await loadCeUploads();
+  await loadCeSchedules();
+};
+
+window.loadCeUploads = async function () {
+  const el = document.getElementById('ce-uploads-list');
+  el.innerHTML = '<span style="color:var(--muted);font-size:13px;">불러오는 중...</span>';
+  try {
+    await ceInit();
+    const { collection, getDocs, query, orderBy, limit } = ceFs;
+    const snap = await getDocs(query(collection(ceDb, 'scheduleUploads'), orderBy('uploadedAt', 'desc'), limit(20)));
+    if (snap.empty) { el.innerHTML = '<span style="color:var(--muted);font-size:13px;">업로드 기록이 없습니다.</span>'; return; }
+    el.innerHTML = `<table class="tbl">
+      <thead><tr><th>올린 시각</th><th>파일</th><th>교육</th><th>수업 줄</th><th>학회</th><th>기간</th></tr></thead>
+      <tbody>${snap.docs.map(d => {
+        const u = d.data();
+        const t = u.uploadedAt && u.uploadedAt.toDate ? u.uploadedAt.toDate() : null;
+        return `<tr>
+          <td>${t ? t.toLocaleString('ko-KR') : '-'}</td>
+          <td>${escHtml(u.fileName || '-')}</td>
+          <td>${u.blocks || 0}건</td>
+          <td>${u.courses || 0}줄</td>
+          <td>${u.orgs || 0}곳</td>
+          <td>${escHtml(u.dateFrom || '')} ~ ${escHtml(u.dateTo || '')}</td>
+        </tr>`;
+      }).join('')}</tbody></table>`;
+  } catch (e) {
+    el.innerHTML = `<span style="color:#b91c1c;font-size:13px;">${escHtml(e.message)}</span>`;
+  }
+};
+
+let ceSchedCache = [];
+
+window.loadCeSchedules = async function () {
+  const el = document.getElementById('ce-sched-list');
+  el.innerHTML = '<span style="color:var(--muted);font-size:13px;">불러오는 중...</span>';
+  try {
+    await ceInit();
+    const { collection, getDocs } = ceFs;
+    const snap = await getDocs(collection(ceDb, 'schedule'));
+    ceSchedCache = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    renderCeSchedList();
+  } catch (e) {
+    el.innerHTML = `<span style="color:#b91c1c;font-size:13px;">${escHtml(e.message)}</span>`;
+  }
+};
+
+window.renderCeSchedList = function () {
+  const el = document.getElementById('ce-sched-list');
+  const q = (document.getElementById('ce-sched-filter').value || '').trim();
+  const list = q ? ceSchedCache.filter(s =>
+    (s.orgName || '').includes(q) || (s.date || '').includes(q) || (s.topic || '').includes(q)) : ceSchedCache;
+  if (!list.length) {
+    el.innerHTML = `<span style="color:var(--muted);font-size:13px;">${ceSchedCache.length ? '검색 결과가 없습니다.' : '저장된 시간표가 없습니다.'}</span>`;
+    return;
+  }
+  el.innerHTML = `<div style="font-size:12px;color:var(--muted);margin-bottom:8px;">${list.length}건${q ? ` (전체 ${ceSchedCache.length}건 중)` : ''}</div>
+    <table class="tbl">
+      <thead><tr><th>날짜</th><th>학회</th><th>주제</th><th>수업</th><th>출처</th><th></th></tr></thead>
+      <tbody>${list.slice(0, 200).map((s, i) => `
+        <tr>
+          <td>${escHtml(s.date || '')}</td>
+          <td>${escHtml(s.orgName || '')}</td>
+          <td style="max-width:260px;">${escHtml((s.topic || '').slice(0, 44))}${(s.events || []).length > 1 ? ` <span style="color:#b45309;font-size:11px;">교육 ${s.events.length}건</span>` : ''}</td>
+          <td>${(s.courses || []).length}줄</td>
+          <td style="color:var(--muted);font-size:12px;">${s.source === 'excel' ? '엑셀' : 'KMA'}</td>
+          <td><button class="btn btn-outline btn-sm" onclick="viewCeSchedule('${escHtml(s.id).replace(/'/g, "\\'")}')">보기</button></td>
+        </tr>`).join('')}
+      </tbody></table>
+    ${list.length > 200 ? `<div style="margin-top:8px;color:var(--muted);font-size:12px;">앞 200건만 표시 — 검색으로 좁혀주세요.</div>` : ''}`;
+};
+
+window.viewCeSchedule = function (id) {
+  const s = ceSchedCache.find(x => x.id === id);
+  if (!s) return;
+  const rows = (s.courses || []).map(c => `
+    <tr${c.kind !== '교육시간' ? ' style="background:#faf8f5;color:#6b6b76;"' : ''}>
+      <td style="white-space:nowrap;">${escHtml(c.time || '')}</td>
+      <td>${escHtml(c.room || '')}</td>
+      <td>${escHtml(c.kind || '')}</td>
+      <td>${escHtml(c.title || '')}</td>
+      <td>${escHtml(c.instructor || '')}${c.affiliation ? ` <span style="color:var(--muted);">(${escHtml(c.affiliation)})</span>` : ''}</td>
+    </tr>`).join('');
+  const w = window.open('', '_blank');
+  w.document.write(`<!doctype html><meta charset="utf-8"><title>${escHtml(s.orgName)} ${escHtml(s.date)}</title>
+    <style>body{font-family:system-ui,sans-serif;padding:24px;}table{border-collapse:collapse;width:100%;font-size:13px;}
+    th,td{border:1px solid #ddd;padding:7px 9px;text-align:left;}th{background:#f5f3f0;}</style>
+    <h2 style="margin:0 0 4px;">${escHtml(s.orgName)} — ${escHtml(s.date)}</h2>
+    <div style="color:#666;margin-bottom:14px;">${escHtml(s.topic || '')}${s.place ? ' · ' + escHtml(s.place) : ''}</div>
+    <table><thead><tr><th>시간</th><th>강의실</th><th>구분</th><th>교육제목</th><th>강사</th></tr></thead><tbody>${rows}</tbody></table>`);
+  w.document.close();
+};
+
 </script>
 </body>
 </html>
