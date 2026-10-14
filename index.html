@@ -3654,6 +3654,19 @@ window.saveCeSchedules = async function () {
       stat.textContent = `저장 중... ${saved}/${entries.length}`;
     }
 
+    // 가입 화면이 KMA 사이트를 긁지 않고 Firestore만 읽도록 기관 목록도 저장.
+    // id를 기관명 그대로 써야 schedule/{기관명}_{날짜} 문서와 연결된다.
+    const orgNames = [...new Set(valid.map(b => b.orgName))];
+    for (let i = 0; i < orgNames.length; i += 300) {
+      const batch = writeBatch(ceDb);
+      orgNames.slice(i, i + 300).forEach(name => {
+        batch.set(doc(ceDb, 'orgs', name), {
+          name, updatedAt: serverTimestamp(), source: 'excel',
+        }, { merge: true });
+      });
+      await batch.commit();
+    }
+
     // 업로드 기록
     const dates = [...new Set(valid.map(b => b.date))].sort();
     await setDoc(doc(collection(ceDb, 'scheduleUploads')), {
@@ -3665,7 +3678,7 @@ window.saveCeSchedules = async function () {
       uploadedAt: serverTimestamp(),
     });
 
-    stat.textContent = `완료 — 교육 ${valid.length}건을 ${entries.length}개 학회·날짜로 저장(같은 학회·날짜는 덮어쓰기)`;
+    stat.textContent = `완료 — 교육 ${valid.length}건을 ${entries.length}개 학회·날짜로 저장(같은 학회·날짜는 덮어쓰기) · 기관 ${orgNames.length}곳 등록`;
     await loadCeUploads();
     await loadCeSchedules();
   } catch (e) {
