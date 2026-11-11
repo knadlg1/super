@@ -359,7 +359,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
         <div class="card" style="padding:0;overflow:hidden;">
           <table class="tbl">
             <thead><tr>
-              <th>학원명</th><th>원장님</th><th>결제 상태</th><th>월 요금</th><th>마지막 결제</th><th>카드</th><th>관리</th>
+              <th>학원명</th><th>원장님</th><th>결제 상태</th><th>월 요금</th><th>마지막 결제</th><th>다음 결제일</th><th>카드</th><th>관리</th>
             </tr></thead>
             <tbody id="payment-list"></tbody>
           </table>
@@ -1984,32 +1984,30 @@ async function loadPayments(){
               <td>${payBadge}${unpaid}${cancelBadge}</td>
               <td>${amountCell}</td>
               <td style="color:var(--muted);font-size:12px;">${escHtml(lastPay)}</td>
+              <td style="color:var(--muted);font-size:12px;">${d.nextBillingDate ? escHtml(d.nextBillingDate)+(d.billingDay?`<div>매월 ${d.billingDay}일</div>`:'') : '-'}</td>
               <td style="font-size:12px;">${cardInfo}</td>
               <td style="display:flex;gap:6px;flex-wrap:wrap;">
-                ${ps==='overdue'
-                    ? `<button class="btn btn-primary btn-sm" onclick="setPaymentStatus('${d.id}','active')">정상화</button>`
-                    : ps==='active'
-                      ? `<button class="btn btn-warn btn-sm" onclick="setPaymentStatus('${d.id}','overdue')">연체 처리</button>`
-                      : ''}
+                ${ps==='active'
+                    ? `<button class="btn btn-warn btn-sm" onclick="setOverdue('${d.id}')">연체 처리</button>`
+                    : ''}
                 <button class="btn btn-outline btn-sm" onclick="proposeCustomAmount('${d.id}')">금액 제안</button>
                 ${d.customAmount ? `<button class="btn btn-outline btn-sm" onclick="proposeCustomAmount('${d.id}',true)">제안 취소</button>` : ''}
               </td>
             </tr>`;
         }).join('');
-        document.getElementById('payment-list').innerHTML = rows || '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--muted);">승인된 학원 없음</td></tr>';
+        document.getElementById('payment-list').innerHTML = rows || '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--muted);">승인된 학원 없음</td></tr>';
     } catch(e){ showToast('불러오기 실패: '+e.message,'error'); }
     showLoader(false);
 }
 
-async function setPaymentStatus(id, status){
-    const label = status==='active' ? '정상화' : '연체 처리';
-    const extra = status==='active' ? '\n정상화하면 미납 내역이 모두 면제 처리됩니다.' : '';
-    if (!confirm(`결제 상태를 "${label}"로 변경하시겠습니까?${extra}`)) return;
+// 연체 처리만 가능 — 연체 해제(정상화)는 원장님이 연체 결제를 완료해야만 된다(수동 정상화 없음).
+async function setOverdue(id){
+    if (!confirm('연체 처리하시겠습니까?\n원장님 화면이 잠기며, 원장님이 연체 결제를 완료해야 풀립니다.')) return;
     showLoader(true);
     try {
-        const data = await saPayCall('setDirectorPaymentStatus',{directorId:id,status});
+        const data = await saPayCall('setDirectorPaymentStatus',{directorId:id,status:'overdue'});
         if (!data.success){ showToast('실패: '+(data.message||''),'error'); showLoader(false); return; }
-        showToast(label+' 완료','success');
+        showToast('연체 처리 완료','success');
         await loadPayments();
     } catch(e){ showToast('실패: '+e.message,'error'); }
     showLoader(false);
