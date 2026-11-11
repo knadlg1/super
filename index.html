@@ -210,6 +210,9 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
       <button class="nav-item" id="nav-payment" onclick="showPage('payment',this)">
         <span class="nav-icon">💳</span>결제 현황
       </button>
+      <button class="nav-item" id="nav-notices" onclick="showPage('notices',this)">
+        <span class="nav-icon">📢</span>공지
+      </button>
       <div class="sidebar-section-label">연수교육</div>
       <button class="nav-item" id="nav-cesched" onclick="showPage('cesched',this);initCeSchedPage()">
         <span class="nav-icon">🗓️</span>시간표 업로드
@@ -353,15 +356,44 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
             <div class="section-title">결제 현황</div>
             <div class="section-subtitle">원장님별 결제 상태를 관리하세요</div>
           </div>
-          <button class="btn btn-outline btn-sm" onclick="loadPayments()">새로고침</button>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-primary btn-sm" onclick="openBulkModal()">일괄 요금 조정</button>
+            <button class="btn btn-outline btn-sm" onclick="loadPayments()">새로고침</button>
+          </div>
         </div>
         <div class="stat-grid" id="payment-stats"></div>
         <div class="card" style="padding:0;overflow:hidden;">
           <table class="tbl">
             <thead><tr>
-              <th>학원명</th><th>원장님</th><th>결제 상태</th><th>월 요금</th><th>마지막 결제</th><th>다음 결제일</th><th>카드</th><th>관리</th>
+              <th style="width:32px;"><input type="checkbox" id="pay-check-all" onchange="togglePayChecks(this.checked)"></th><th>학원명</th><th>원장님</th><th>결제 상태</th><th>월 요금</th><th>마지막 결제</th><th>다음 결제일</th><th>카드</th><th>관리</th>
             </tr></thead>
             <tbody id="payment-list"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 공지 -->
+      <div class="page" id="page-notices">
+        <div class="section-header">
+          <div>
+            <div class="section-title">공지</div>
+            <div class="section-subtitle">등록한 공지는 원장님 화면 '실습현황' 오른쪽 위에 한 줄로 14일간 표시됩니다. 수정하면 14일이 다시 시작됩니다.</div>
+          </div>
+          <button class="btn btn-outline btn-sm" onclick="loadNotices()">새로고침</button>
+        </div>
+        <div class="card" style="margin-bottom:16px;">
+          <label class="form-label">공지 내용 <span style="font-weight:400;">(최대 100자, 줄바꿈 없음)</span> <span id="notice-count" style="float:right;font-weight:400;">0/100</span></label>
+          <div style="display:flex;gap:8px;">
+            <input class="form-input" id="notice-input" maxlength="100" placeholder="예: 11월 27일(금) 오후 2시 서버 점검이 예정되어 있습니다" oninput="updateNoticeCount()" onkeydown="if(event.key==='Enter')saveNotice()">
+            <button class="btn btn-primary" id="btn-notice-save" onclick="saveNotice()" style="white-space:nowrap;">등록</button>
+            <button class="btn btn-ghost" id="btn-notice-cancel" onclick="cancelNoticeEdit()" style="display:none;white-space:nowrap;">취소</button>
+          </div>
+          <div id="notice-edit-hint" style="display:none;font-size:12px;color:#92400e;margin-top:8px;">수정 중입니다. 저장하면 등록 시각이 지금으로 바뀌어 14일이 다시 시작되고 원장님 화면에서는 새 공지(NEW)로 표시됩니다.</div>
+        </div>
+        <div class="card" style="padding:0;overflow:hidden;">
+          <table class="tbl">
+            <thead><tr><th>내용</th><th>등록/수정일</th><th>만료일</th><th>상태</th><th>관리</th></tr></thead>
+            <tbody id="notice-list"></tbody>
           </table>
         </div>
       </div>
@@ -740,6 +772,38 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--canvas);color:var
   </div>
 </div>
 
+<!-- 일괄 요금 조정 모달 -->
+<div class="modal-backdrop" id="bulk-modal">
+  <div class="modal" style="max-width:760px;">
+    <button class="modal-close" onclick="closeModal('bulk-modal')">✕</button>
+    <div class="modal-title">일괄 요금 조정</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:14px;">변경 전→후 금액을 미리 확인한 뒤 적용합니다. 적용하면 개별 요금으로 저장됩니다(플랜 요금인 학원은 현재 플랜 금액 + 인상분).</div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label class="form-label">대상</label>
+      <label style="font-size:14px;margin-right:16px;"><input type="radio" name="bulk-target" value="all" checked onchange="resetBulkPreview()"> 승인된 전체 학원</label>
+      <label style="font-size:14px;"><input type="radio" name="bulk-target" value="checked" onchange="resetBulkPreview()"> 표에서 체크한 학원 (<span id="bulk-checked-count">0</span>곳)</label>
+    </div>
+    <div style="display:flex;gap:10px;align-items:flex-end;margin-bottom:6px;">
+      <div class="form-group" style="max-width:220px;">
+        <label class="form-label">방식</label>
+        <select class="form-select" id="bulk-method" onchange="bulkMethodHint()">
+          <option value="add">+N원</option>
+          <option value="percent">+N%</option>
+        </select>
+      </div>
+      <div class="form-group" style="max-width:160px;">
+        <label class="form-label">인상 값 (<span id="bulk-unit">원</span>)</label>
+        <input class="form-input" id="bulk-value" type="number" min="1" oninput="resetBulkPreview()" placeholder="예: 1000">
+      </div>
+      <button class="btn btn-outline" onclick="previewBulk()" style="padding:10px 18px;">미리보기</button>
+    </div>
+    <div id="bulk-hint" style="font-size:12px;color:var(--muted);">현재 월 요금에 입력한 금액을 더합니다.</div>
+    <div id="bulk-preview"></div>
+    <div id="bulk-result"></div>
+    <button class="btn btn-primary" id="btn-bulk-apply" onclick="applyBulk()" disabled style="width:100%;padding:14px;margin-top:16px;">미리보기대로 적용</button>
+  </div>
+</div>
+
 <script>
 // ── Kakao REST API 키 설정 ─────────────────────────────────
 // Kakao Developers(developers.kakao.com)에서 앱 생성 후 REST API 키 입력
@@ -828,6 +892,7 @@ function showPage(id, btn){
     if (btn) btn.classList.add('active');
     if (id==='directors') loadDirectors();
     if (id==='payment')   loadPayments();
+    if (id==='notices')   loadNotices();
     if (id==='data')      initDataPage();
     if (id==='academies') loadAcademies();
     if (id==='hospreqs') loadHospitalRequests();
@@ -1973,12 +2038,15 @@ async function loadPayments(){
                 : '<span class="badge badge-gray">미등록</span>';
             const cancelBadge = d.cancelAt ? `<div style="font-size:11px;color:var(--muted);margin-top:3px;">해지 예정 (${escHtml(d.cancelAt)})</div>` : '';
             const unpaid = d.unpaidTotal ? `<div style="font-size:11px;color:#c82014;margin-top:3px;">미납 ${fmtWon(d.unpaidTotal)}</div>` : '';
-            const planDesc = d.customAmount ? (d.customAccepted ? '개별 제안 적용 중' : '개별 제안 · 수락 대기')
-                : d.planClassCount ? `${d.planClassCount}개 반${d.planClassCount===4?' 이상':''}` : '플랜 미선택';
-            const amountCell = `<div style="font-weight:600;">${d.amount ? fmtWon(d.amount) : '-'}</div><div style="font-size:11px;color:var(--muted);">${planDesc}${d.customAmount && !d.customAccepted ? ` (제안 ${fmtWon(d.customAmount)})` : ''}</div>`;
+            // 월 요금 = 실제로 청구될 금액, 출처 = 개별 요금(최종관리자가 설정) 또는 플랜(원장 선택)
+            const sourceDesc = d.amountSource==='custom' ? '<span class="badge badge-green">개별 요금</span>'
+                : d.amountSource==='plan' ? `플랜 ${d.planClassCount}개 반${d.planClassCount===4?' 이상':''}`
+                : '플랜 미선택';
+            const amountCell = `<div style="font-weight:600;">${d.amount ? fmtWon(d.amount) : '-'}</div><div style="font-size:11px;color:var(--muted);">${sourceDesc}</div>`;
             const cardInfo = d.cardInfo ? `${escHtml(d.cardInfo.brand||'')} ****${escHtml(d.cardInfo.last4||'')}` : '미등록';
             const lastPay = d.lastPaymentAt || '-';
             return `<tr>
+              <td><input type="checkbox" class="pay-check" value="${escHtml(d.id)}" onchange="updateBulkCheckedCount()"></td>
               <td style="font-weight:600;">${escHtml(d.academyName||'-')}</td>
               <td>${escHtml(d.name||'-')}</td>
               <td>${payBadge}${unpaid}${cancelBadge}</td>
@@ -1990,12 +2058,14 @@ async function loadPayments(){
                 ${ps==='active'
                     ? `<button class="btn btn-warn btn-sm" onclick="setOverdue('${d.id}')">연체 처리</button>`
                     : ''}
-                <button class="btn btn-outline btn-sm" onclick="proposeCustomAmount('${d.id}')">금액 제안</button>
-                ${d.customAmount ? `<button class="btn btn-outline btn-sm" onclick="proposeCustomAmount('${d.id}',true)">제안 취소</button>` : ''}
+                <button class="btn btn-outline btn-sm" onclick="editCustomAmount('${d.id}')">요금 수정</button>
+                ${d.amountSource==='custom' ? `<button class="btn btn-outline btn-sm" onclick="editCustomAmount('${d.id}',true)">개별 요금 해제</button>` : ''}
               </td>
             </tr>`;
         }).join('');
-        document.getElementById('payment-list').innerHTML = rows || '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--muted);">승인된 학원 없음</td></tr>';
+        document.getElementById('payment-list').innerHTML = rows || '<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--muted);">승인된 학원 없음</td></tr>';
+        const all = document.getElementById('pay-check-all'); if (all) all.checked = false;
+        updateBulkCheckedCount();
     } catch(e){ showToast('불러오기 실패: '+e.message,'error'); }
     showLoader(false);
 }
@@ -2013,28 +2083,169 @@ async function setOverdue(id){
     showLoader(false);
 }
 
-// 개별 금액 제안(또는 제안 취소). 원장님이 결제 탭에서 "제안 금액 정기결제 등록"으로 카드를 등록해야 그 금액이 청구된다.
-async function proposeCustomAmount(id, remove){
+// 개별 요금 수정(또는 해제). 설정한 금액이 즉시 그 학원의 월 정기결제 요금이며, 이미 결제 주기가 도는 학원은 다음 청구부터 적용된다.
+async function editCustomAmount(id, remove){
     const d = payDirectors.find(x=>x.id===id);
     if (!d) return;
     let amount = null;
     if (remove){
-        if (!confirm(`${d.academyName} 원장님께 제안한 ${fmtWon(d.customAmount)}을(를) 취소하시겠습니까?\n취소하면 선택한 플랜 금액으로 청구됩니다.`)) return;
+        const fallback = d.planClassCount ? '플랜 요금' : '요금 없음(원장님이 플랜을 선택해야 함)';
+        if (!confirm(`${d.academyName}의 개별 요금 ${fmtWon(d.amount)}을(를) 해제하시겠습니까?\n해제하면 ${fallback}이 적용됩니다.`)) return;
     } else {
-        const input = prompt(`${d.academyName} 원장님께 제안할 월 금액(원)을 입력하세요. (1,000 ~ 10,000,000)\n원장님이 결제 탭에서 "제안 금액 정기결제 등록"을 하면 그 금액이 정기결제 금액이 됩니다.`, d.customAmount||'');
+        const input = prompt(`${d.academyName}의 월 정기결제 요금(원)을 입력하세요. (1,000 ~ 10,000,000)\n현재: ${d.amount ? fmtWon(d.amount) : '없음'}${d.amountSource==='custom' ? ' (개별 요금)' : d.amountSource==='plan' ? ' (플랜)' : ''}`, d.amount||'');
         if (input===null) return;
         amount = Number(String(input).replace(/[,\s]/g,''));
-        if (!Number.isInteger(amount) || amount<1000){ showToast('올바른 금액이 아닙니다','error'); return; }
-        const warn = d.cardInfo ? '\n이미 카드가 등록된 원장님입니다. 원장님이 수락(카드 재등록)하기 전까지는 기존 플랜 금액으로 청구됩니다.' : '';
-        if (!confirm(`${d.academyName} 원장님께 월 ${fmtWon(amount)}을(를) 제안합니다.${warn}`)) return;
+        if (!Number.isInteger(amount) || amount<1000 || amount>10000000){ showToast('1,000~10,000,000 사이의 정수를 입력해주세요','error'); return; }
+        if (!confirm(`${d.academyName}의 월 정기결제 요금을 ${fmtWon(amount)}(으)로 설정합니다.\n이미 결제 주기가 도는 학원은 다음 청구부터 적용됩니다.`)) return;
     }
     showLoader(true);
     try {
         const data = await saPayCall('setDirectorCustomAmount',{directorId:id,amount});
         if (!data.success){ showToast('실패: '+(data.message||''),'error'); showLoader(false); return; }
-        showToast(remove?'제안을 취소했습니다':'금액을 제안했습니다','success');
+        showToast(remove?'개별 요금을 해제했습니다':'요금을 설정했습니다','success');
         await loadPayments();
     } catch(e){ showToast('실패: '+e.message,'error'); }
+    showLoader(false);
+}
+
+// ── 일괄 요금 조정 ─────────────────────────────────────────
+// 미리보기(서버 계산, 쓰기 없음) → 확인 → 적용. 적용은 미리보기의 "변경 후 금액"을 그대로 set 하므로 다시 눌러도 중복 인상되지 않는다.
+let bulkItems = [];
+function checkedPayIds(){ return [...document.querySelectorAll('.pay-check:checked')].map(c=>c.value); }
+function togglePayChecks(on){ document.querySelectorAll('.pay-check').forEach(c=>c.checked=on); updateBulkCheckedCount(); }
+function updateBulkCheckedCount(){ const el = document.getElementById('bulk-checked-count'); if (el) el.textContent = checkedPayIds().length; }
+function openBulkModal(){
+    updateBulkCheckedCount();
+    document.getElementById('bulk-value').value = '';
+    resetBulkPreview();
+    document.getElementById('bulk-modal').classList.add('show');
+}
+function resetBulkPreview(){
+    bulkItems = [];
+    document.getElementById('bulk-preview').innerHTML = '';
+    document.getElementById('bulk-result').innerHTML = '';
+    document.getElementById('btn-bulk-apply').disabled = true;
+}
+function bulkMethodHint(){
+    const m = document.getElementById('bulk-method').value;
+    document.getElementById('bulk-unit').textContent = m==='add' ? '원' : '%';
+    document.getElementById('bulk-hint').textContent = m==='add'
+        ? '현재 월 요금에 입력한 금액을 더합니다.'
+        : '현재 월 요금 × (1 + N/100) 을 계산한 뒤 100원 단위로 반올림합니다. (예: 19,000원 +5% = 19,950원 → 20,000원)';
+    resetBulkPreview();
+}
+async function previewBulk(){
+    const method = document.getElementById('bulk-method').value;
+    const value = Number(document.getElementById('bulk-value').value);
+    const target = document.querySelector('input[name="bulk-target"]:checked').value;
+    const targetIds = target==='checked' ? checkedPayIds() : undefined;
+    if (!(value>0)){ showToast('인상 값을 입력해주세요','error'); return; }
+    if (target==='checked' && !targetIds.length){ showToast('체크한 학원이 없습니다','error'); return; }
+    showLoader(true);
+    try {
+        const data = await saPayCall('bulkAdjustDirectorAmount',{mode:'preview',method,value,targetIds});
+        if (!data.success){ showToast('미리보기 실패: '+(data.message||''),'error'); showLoader(false); return; }
+        bulkItems = data.items||[];
+        const okCount = bulkItems.filter(x=>x.ok).length;
+        document.getElementById('bulk-result').innerHTML = '';
+        document.getElementById('bulk-preview').innerHTML = `
+          <div style="font-size:13px;margin:14px 0 8px;">변경 대상 <b>${okCount}</b>곳${okCount<bulkItems.length?` (제외 ${bulkItems.length-okCount}곳)`:''}</div>
+          <div style="max-height:300px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;">
+          <table class="tbl"><thead><tr><th>학원</th><th>출처</th><th>변경 전</th><th>변경 후</th><th>비고</th></tr></thead><tbody>
+          ${bulkItems.map(x=>`<tr${x.ok?'':' style="opacity:.55;"'}>
+            <td>${escHtml(x.academyName||x.directorId)}</td>
+            <td style="font-size:12px;">${x.source==='custom'?'개별 요금':x.source==='plan'?'플랜':'-'}</td>
+            <td>${x.before?fmtWon(x.before):'-'}</td>
+            <td style="font-weight:700;">${x.after?fmtWon(x.after):'-'}</td>
+            <td style="font-size:12px;color:#c82014;">${x.ok?'':escHtml(x.reason||'')}</td></tr>`).join('')}
+          </tbody></table></div>`;
+        document.getElementById('btn-bulk-apply').disabled = okCount===0;
+    } catch(e){ showToast('미리보기 실패: '+e.message,'error'); }
+    showLoader(false);
+}
+async function applyBulk(){
+    const items = bulkItems.filter(x=>x.ok).map(x=>({directorId:x.directorId, after:x.after}));
+    if (!items.length) return;
+    const total = items.reduce((s,x)=>s+x.after,0) - bulkItems.filter(x=>x.ok).reduce((s,x)=>s+x.before,0);
+    if (!confirm(`${items.length}곳의 월 요금을 위 미리보기대로 변경합니다. (월 합계 ${total>=0?'+':''}${fmtWon(total)})\n개별 요금으로 저장되며, 이미 결제 주기가 도는 학원은 다음 청구부터 적용됩니다.\n\n적용하시겠습니까?`)) return;
+    showLoader(true);
+    try {
+        const data = await saPayCall('bulkAdjustDirectorAmount',{mode:'apply',items});
+        const names = ids => ids.map(id=>escHtml((bulkItems.find(x=>x.directorId===id)||{}).academyName||id)).join(', ');
+        let html = '';
+        if (data.succeeded && data.succeeded.length) html += `<div style="color:#065F46;font-size:13px;margin-top:10px;">성공 ${data.succeeded.length}곳: ${names(data.succeeded)}</div>`;
+        if (data.failed && data.failed.length) html += `<div style="color:#c82014;font-size:13px;margin-top:6px;">실패 ${data.failed.length}곳: ${data.failed.map(f=>`${escHtml((bulkItems.find(x=>x.directorId===f.directorId)||{}).academyName||f.directorId)}(${escHtml(f.reason)})`).join(', ')}<br>같은 "적용"을 다시 눌러도 이미 변경된 학원은 같은 금액으로 다시 설정될 뿐 중복 인상되지 않습니다.</div>`;
+        if (!data.succeeded && data.message) html = `<div style="color:#c82014;font-size:13px;margin-top:10px;">${escHtml(data.message)}</div>`;
+        document.getElementById('bulk-result').innerHTML = html;
+        showToast(data.success ? '일괄 조정 완료' : '일부 실패 — 결과를 확인하세요', data.success ? 'success' : 'error');
+        await loadPayments();
+    } catch(e){ showToast('적용 실패: '+e.message,'error'); }
+    showLoader(false);
+}
+
+// ── 공지 ──────────────────────────────────────────────────
+// 등록 시각부터 14일 노출, 수정하면 지금부터 14일이 다시 시작된다(원장 화면에서는 새 공지로 취급). 원장 화면은 표시 전용.
+let noticeEditId = null, allNotices = [];
+function fmtNoticeDate(ms){ const d = new Date(ms); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function updateNoticeCount(){ document.getElementById('notice-count').textContent = Array.from(document.getElementById('notice-input').value).length+'/100'; }
+async function loadNotices(){
+    showLoader(true);
+    try {
+        const data = await saPayCall('listNotices');
+        if (!data.success){ showToast('불러오기 실패: '+(data.message||''),'error'); showLoader(false); return; }
+        allNotices = data.notices||[];
+        document.getElementById('notice-list').innerHTML = allNotices.map(n=>`<tr>
+          <td style="max-width:420px;word-break:break-all;">${escHtml(n.text)}</td>
+          <td style="color:var(--muted);font-size:12px;">${fmtNoticeDate(n.publishedAt)}</td>
+          <td style="color:var(--muted);font-size:12px;">${fmtNoticeDate(n.expiresAt)}</td>
+          <td>${n.status==='active'?'<span class="badge badge-green">노출 중</span>':'<span class="badge badge-gray">만료</span>'}</td>
+          <td style="display:flex;gap:6px;"><button class="btn btn-outline btn-sm" onclick="startNoticeEdit('${n.id}')">수정</button><button class="btn btn-danger btn-sm" onclick="deleteNotice('${n.id}')">삭제</button></td>
+        </tr>`).join('') || '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--muted);">등록된 공지가 없습니다</td></tr>';
+    } catch(e){ showToast('불러오기 실패: '+e.message,'error'); }
+    showLoader(false);
+}
+function startNoticeEdit(id){
+    const n = allNotices.find(x=>x.id===id); if (!n) return;
+    noticeEditId = id;
+    document.getElementById('notice-input').value = n.text;
+    document.getElementById('btn-notice-save').textContent = '수정 저장';
+    document.getElementById('btn-notice-cancel').style.display = '';
+    document.getElementById('notice-edit-hint').style.display = '';
+    updateNoticeCount();
+    document.getElementById('notice-input').focus();
+}
+function cancelNoticeEdit(){
+    noticeEditId = null;
+    document.getElementById('notice-input').value = '';
+    document.getElementById('btn-notice-save').textContent = '등록';
+    document.getElementById('btn-notice-cancel').style.display = 'none';
+    document.getElementById('notice-edit-hint').style.display = 'none';
+    updateNoticeCount();
+}
+async function saveNotice(){
+    const text = document.getElementById('notice-input').value.trim();
+    if (!text){ showToast('공지 내용을 입력해주세요','error'); return; }
+    if (Array.from(text).length>100){ showToast('공지는 100자까지 입력할 수 있습니다','error'); return; }
+    showLoader(true);
+    try {
+        const data = noticeEditId ? await saPayCall('updateNotice',{id:noticeEditId,text}) : await saPayCall('createNotice',{text});
+        if (!data.success){ showToast('실패: '+(data.message||''),'error'); showLoader(false); return; }
+        showToast(noticeEditId?'공지를 수정했습니다(14일 다시 시작)':'공지를 등록했습니다','success');
+        cancelNoticeEdit();
+        await loadNotices();
+    } catch(e){ showToast('실패: '+e.message,'error'); }
+    showLoader(false);
+}
+async function deleteNotice(id){
+    if (!confirm('이 공지를 삭제하시겠습니까?')) return;
+    showLoader(true);
+    try {
+        const data = await saPayCall('deleteNotice',{id});
+        if (!data.success){ showToast('삭제 실패: '+(data.message||''),'error'); showLoader(false); return; }
+        showToast('삭제했습니다','success');
+        if (noticeEditId===id) cancelNoticeEdit();
+        await loadNotices();
+    } catch(e){ showToast('삭제 실패: '+e.message,'error'); }
     showLoader(false);
 }
 
